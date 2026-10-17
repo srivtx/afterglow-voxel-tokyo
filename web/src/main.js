@@ -3,7 +3,11 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { createSky, skyU, sampleTime, applyEnv, DEFAULT_TIME, TIME_KEYS, sunDirection } from './sky.js';
 import { emissiveGroups } from './voxel.js';
 import { buildCity } from './world.js';
-import { createPetals, createPost } from './fx.js';
+import { createPetals, createPost, createRain, FLAKE_MODES } from './fx.js';
+import { createAtmos, SEASONS, WEATHERS } from './atmos.js';
+import { createHanabi } from './hanabi.js';
+import { createLife } from './life.js';
+import { setCustomSign, SIGN_COLORS } from './sign.js';
 import { Director } from './cinematic.js';
 import { createMusic } from './audio.js';
 import { HERO, groundH, PAGODA, TORII, TOWER, inFine } from './build/layout.js';
@@ -53,12 +57,19 @@ post.setSize(window.innerWidth, window.innerHeight, pixelRatio);
 
 const petals = createPetals();
 scene.add(petals.mesh);
+const rain = createRain();
+scene.add(rain.mesh);
+const atmos = createAtmos({ renderer, scene, flakes: petals, rain });
+atmos.setSize(window.innerWidth * pixelRatio, window.innerHeight * pixelRatio);
+const hanabi = createHanabi();
+scene.add(hanabi.points);
+let life = null;
 
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.target.set(...HERO.target);
 Object.assign(controls, {
   enableDamping: true, dampingFactor: 0.07, screenSpacePanning: true, rotateSpeed: 0.5, panSpeed: 0.9, zoomSpeed: 0.9,
-  minDistance: 6, maxDistance: 1400, maxPolarAngle: Math.PI * 0.495, autoRotateSpeed: 0.35,
+  minDistance: 6, maxDistance: 1400, maxPolarAngle: Math.PI * 0.6, autoRotateSpeed: 0.35,
 });
 controls.update();
 
@@ -68,14 +79,15 @@ const moodFor = (t) => (t < 0.19 ? 'golden' : t < 0.55 ? 'sunset' : t < 0.86 ? '
 window.addEventListener('pointerdown', () => { if (music.on) music.start(); }, { once: false, passive: true });
 
 // ------------------------------------------------------------------- state
-const state = { time: DEFAULT_TIME, mode: 'explore', timelapse: false, ui: true };
+const state = { time: DEFAULT_TIME, mode: 'explore', timelapse: false, ui: true, hanabi: false, ink: false, life: true, sign: null };
+const tmpCol = new THREE.Color(), flashCol = new THREE.Color();
 let env = sampleTime(state.time);
 let city = null;
 let director = null;
 
 function setTime(t, fromUser = false) {
   state.time = t;
-  env = sampleTime(t);
+  env = atmos.modifyEnv(sampleTime(t));
   applyEnv(env);
   hemi.color.copy(env.hemiSky); hemi.groundColor.copy(env.hemiGround); hemi.intensity = env.hemiInt;
   sun.color.copy(env.sunColor); sun.intensity = env.sunInt;
@@ -86,7 +98,8 @@ function setTime(t, fromUser = false) {
   renderer.toneMappingExposure = env.exposure;
   post.bloom.strength = state.bloomOn === false ? 0 : env.bloom * 0.8;
   petals.uniforms.uTint.value.copy(env.hemiSky).multiplyScalar(0.55).add(env.sunColor.clone().multiplyScalar(0.25 * Math.min(1, env.sunInt)));
-  petals.uniforms.uEm.value = 0.08 + env.sakura * 0.4;
+  petals.uniforms.uEm.value = 0.08 + env.sakura * 0.4 + (atmos.flakeMode === 'snow' ? 0.12 + env.lamp * 0.08 : 0);
+  rain.uniforms.uTint.value.copy(env.hemiSky).multiplyScalar(0.45).add(tmpCol.setRGB(0.32, 0.26, 0.4).multiplyScalar(env.lamp * 0.5));
   // label = nearest key
   let best = TIME_KEYS[0];
   for (const k of TIME_KEYS) if (Math.abs(k.t - t) < Math.abs(best.t - t)) best = k;
@@ -131,6 +144,11 @@ const trainCtx = {
       local: (dx, y, z) => city.rail.localToWorld(new THREE.Vector3(city.train.position.x + dx, y, z)),
     };
   },
+  timeToNextBar: () => music.timeToNextBar(),
+  barLength: () => music.barLength,
+  pulse: () => music.pulse(),
+  hanabiOn: () => state.hanabi,
+  salvo: () => { for (let i = 0; i < 4; i++) setTimeout(() => hanabi.launch(simT), i * 450); },
 };
 
 // ----------------------------------------------------------------- fly-to
@@ -143,7 +161,7 @@ const VIEWS = {
   shrine: { label: 'Shrine', pos: [TORII.x + 30, 30, TORII.z + 48], target: [TORII.x, 34, TORII.z - 10] },
   pagoda: { label: 'Pagoda', pos: [PAGODA.x + 56, 64, PAGODA.z + 52], target: [PAGODA.x, 66, PAGODA.z] },
   street: { label: 'Street', pos: [2, 28, 104], target: [0, 16, -80] },
-  neon: { label: 'Neon', pos: [-2, 8, -64], target: [2, 22, -210] },
+  neon: { label: 'Neon', pos: [2, 6, -66], target: [-1, 13, -190] },
   rail: { label: 'Railway', pos: [70, 56, 46], target: [0, 32, -40] },
   tower: { label: 'Tower', pos: [TOWER.x - 70, 40, TOWER.z + 150], target: [TOWER.x, 140, TOWER.z] },
   aerial: { label: 'Aerial', pos: [-300, 320, 420], target: [20, 20, -140] },
@@ -212,7 +230,147 @@ function setMusic(on) {
 }
 function updateNowPlaying() {
   const m = music.mood;
-  $('#npMood').textContent = `${m.jp} · ${m.name} · ${m.bpm} BPM`;
+  $('#npMood').textContent = music.fileMode ? `Your track · ${m.name}` : `${m.jp} · ${m.name} · ${m.bpm} BPM`;
+}
+
+// ------------------------------------------------------- seasons & weather
+function setSeason(name, quiet = false) {
+  if (!SEASONS[name]) return;
+  atmos.setSeason(name);
+  $$('#seasonSeg button').forEach((b) => b.classList.toggle('on', b.dataset.v === name));
+  if (name === 'summer' && !state.hanabi) setHanabi(true, true);
+  if (!quiet) toast(`${SEASONS[name].jp} · ${SEASONS[name].name}`);
+  setTime(state.time);
+}
+function setWeather(name, quiet = false) {
+  if (!WEATHERS[name]) return;
+  atmos.setWeather(name);
+  $$('#weatherSeg button').forEach((b) => b.classList.toggle('on', b.dataset.v === name));
+  if (!quiet) toast(`${WEATHERS[name].jp} · ${WEATHERS[name].name}${name === 'rain' && state.time < 0.55 ? ' — try it at night' : ''}`);
+}
+function setHanabi(on, quiet = false) {
+  state.hanabi = on;
+  hanabi.enabled = on;
+  $('#tgHanabi').classList.toggle('on', on);
+  if (on && !quiet) toast(state.time < 0.5 ? '花火 · Fireworks — best after sunset' : '花火 · Fireworks');
+}
+function setInk(on) {
+  state.ink = on;
+  post.ink.enabled = on;
+  $('#tgInk').classList.toggle('on', on);
+  post.grade.uniforms.uSat.value = on ? 1.32 : 1.24;
+  post.grade.uniforms.uGrain.value = on ? 0.022 : 0.035;
+}
+function setLife(on) {
+  state.life = on;
+  if (life) life.group.visible = on;
+  $('#tgLife').classList.toggle('on', on);
+}
+function updateFlakeLabel() {
+  const m = atmos.flakeMode;
+  $('#tgPetals').textContent = m ? FLAKE_MODES[m].label : 'Particles';
+}
+
+// ------------------------------------------------------------ custom sign
+async function applySign(opts, fly = true) {
+  if (!city) return;
+  state.sign = await setCustomSign(city, opts);
+  $('#btnSign').classList.toggle('on', !!state.sign);
+  if (state.sign && fly) { if (state.mode !== 'explore') setMode('explore'); flyTo([3, 23, 18], [0, 27, -40], 2.2); }
+}
+
+// --------------------------------------------------------------- recording
+let rec = null;
+function toggleRecord(film = false) {
+  if (rec) { rec.stop(); return; }
+  if (!window.MediaRecorder) { toast('Recording is not supported in this browser'); return; }
+  const stream = renderer.domElement.captureStream(60);
+  if (music.on) music.stream().getAudioTracks().forEach((t) => stream.addTrack(t));
+  const mime = ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm', 'video/mp4'].find((m) => MediaRecorder.isTypeSupported(m));
+  const chunks = [];
+  rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 14e6 });
+  rec.ondataavailable = (e) => e.data.size && chunks.push(e.data);
+  rec.onstop = () => {
+    const blob = new Blob(chunks, { type: mime });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `afterglow-${Date.now()}.${mime.includes('mp4') ? 'mp4' : 'webm'}`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    rec = null; recStart = 0;
+    document.body.classList.remove('rec');
+    $('#btnRec').classList.remove('on');
+    director.onLoop = null;
+    toast('Clip saved');
+  };
+  rec.start(500);
+  recStart = performance.now();
+  document.body.classList.add('rec');
+  $('#btnRec').classList.add('on');
+  if (film) {
+    setMode('explore'); setMode('cinematic');
+    director.onLoop = () => rec?.stop();
+    toast('● Recording the film — it stops at the end');
+  } else toast('● Recording — press R to stop');
+}
+let recStart = 0;
+
+// ------------------------------------------------------------------ share
+function shareURL() {
+  const q = new URLSearchParams();
+  const tg = state.mode === 'cinematic' ? director.look : controls.target;
+  q.set('cam', [...camera.position.toArray(), ...tg.toArray()].map((v) => v.toFixed(1)).join(','));
+  q.set('t', state.time.toFixed(3));
+  if (atmos.season !== 'spring') q.set('season', atmos.season);
+  if (atmos.weather !== 'clear') q.set('weather', atmos.weather);
+  if (state.ink) q.set('style', 'ink');
+  if (state.hanabi && atmos.season !== 'summer') q.set('hanabi', '1');
+  if (!state.life) q.set('life', '0');
+  if (state.sign) { q.set('sign', state.sign.text); q.set('signc', state.sign.color); if (state.sign.style !== 'neon') q.set('signs', state.sign.style); }
+  return `${location.origin}${location.pathname}?${q}`;
+}
+async function share() {
+  const url = shareURL();
+  history.replaceState(null, '', url);
+  try { await navigator.clipboard.writeText(url); toast('Link copied — it reopens this exact scene'); }
+  catch (e) { toast('Link is in the address bar'); }
+}
+
+// 4K postcard (offscreen render at a fixed size)
+async function renderAt(w, h) {
+  const prevPR = pixelRatio;
+  renderer.setPixelRatio(1); renderer.setSize(w, h, false);
+  camera.aspect = w / h; camera.updateProjectionMatrix();
+  post.setSize(w, h, 1);
+  atmos.setSize(w, h);
+  renderer.shadowMap.needsUpdate = true;
+  atmos.renderReflection(camera);
+  post.composer.render(); post.composer.render();
+  const blob = await new Promise((r) => { post.composer.render(); renderer.domElement.toBlob(r, 'image/png'); });
+  pixelRatio = prevPR; resize();
+  return blob;
+}
+async function postcard() {
+  toast('Rendering a 4K postcard…');
+  await new Promise((r) => setTimeout(r, 50));
+  const blob = await renderAt(3840, 2160);
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `afterglow-4k-${Date.now()}.png`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 3000);
+  toast('4K postcard saved');
+}
+
+async function playTrack(file) {
+  if (!file || !/^audio\//.test(file.type)) { toast('Drop an audio file (mp3, wav, m4a…)'); return; }
+  try {
+    await music.playFile(file);
+    document.body.classList.add('music');
+    $('#btnSound').classList.add('on');
+    updateNowPlaying();
+    toast(`♪ ${music.mood.name} — the city is listening`);
+  } catch (e) { console.error(e); toast('Could not decode that file'); }
 }
 
 function toast(msg) {
@@ -221,7 +379,8 @@ function toast(msg) {
   clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove('show'), 1800);
 }
 
-function screenshot() {
+function screenshot(e) {
+  if (e?.shiftKey) { postcard(); return; }
   post.composer.render();
   renderer.domElement.toBlob((blob) => {
     const a = document.createElement('a');
@@ -250,7 +409,7 @@ function bindUI() {
   $('#time').addEventListener('input', (e) => { state.timelapse = false; $('#tgTimelapse').classList.remove('on'); setTime(parseFloat(e.target.value), true); });
   $$('.tick').forEach((t) => t.addEventListener('click', () => setTime(parseFloat(t.dataset.t))));
   const tog = (id, fn) => $(id).addEventListener('click', (e) => { const on = !e.currentTarget.classList.contains('on'); e.currentTarget.classList.toggle('on', on); fn(on); });
-  tog('#tgPetals', (on) => { petals.mesh.visible = on; });
+  tog('#tgPetals', (on) => { atmos.flakesOn = on; });
   tog('#tgBloom', (on) => { state.bloomOn = on; post.bloom.strength = on ? env.bloom * 0.8 : 0; });
   tog('#tgTilt', (on) => { post.tiltH.enabled = post.tiltV.enabled = on; });
   tog('#tgOrbit', (on) => { controls.autoRotate = on; });
@@ -269,6 +428,35 @@ function bindUI() {
   $('#unhide').addEventListener('click', () => toggleUI(true));
   $('#dockMore').addEventListener('click', () => document.body.classList.toggle('dock-open'));
   $('#vol').addEventListener('input', (e) => music.setVolume(parseFloat(e.target.value)));
+  $$('#seasonSeg button').forEach((b) => b.addEventListener('click', () => setSeason(b.dataset.v)));
+  $$('#weatherSeg button').forEach((b) => b.addEventListener('click', () => setWeather(b.dataset.v)));
+  $('#tgHanabi').addEventListener('click', () => setHanabi(!state.hanabi));
+  $('#tgInk').addEventListener('click', () => setInk(!state.ink));
+  $('#tgLife').addEventListener('click', () => setLife(!state.life));
+  $('#btnRec').addEventListener('click', (e) => toggleRecord(e.shiftKey));
+  $('#recPill').addEventListener('click', () => toggleRecord());
+  $('#btnShare').addEventListener('click', share);
+  $('#btnTrack').addEventListener('click', () => $('#trackFile').click());
+  $('#trackFile').addEventListener('change', (e) => playTrack(e.target.files[0]));
+  window.addEventListener('dragover', (e) => { e.preventDefault(); document.body.classList.add('drop'); });
+  window.addEventListener('dragleave', (e) => { if (!e.relatedTarget) document.body.classList.remove('drop'); });
+  window.addEventListener('drop', (e) => { e.preventDefault(); document.body.classList.remove('drop'); playTrack(e.dataTransfer.files[0]); });
+  // sign dialog
+  let signColor = 'pink', signStyle = 'neon';
+  const sc = $('#signColors');
+  SIGN_COLORS.forEach((c) => {
+    const b = document.createElement('button');
+    b.className = 'sw' + (c === signColor ? ' on' : ''); b.dataset.c = c; b.title = c;
+    b.style.setProperty('--c', getComputedStyle(document.documentElement).getPropertyValue('--n-' + c) || c);
+    b.addEventListener('click', () => { signColor = c; $$('#signColors .sw').forEach((x) => x.classList.toggle('on', x === b)); });
+    sc.appendChild(b);
+  });
+  $$('#signStyle button').forEach((b) => b.addEventListener('click', () => { signStyle = b.dataset.v; $$('#signStyle button').forEach((x) => x.classList.toggle('on', x === b)); }));
+  const closeSign = () => $('#signDlg').classList.remove('show');
+  $('#btnSign').addEventListener('click', () => { $('#signDlg').classList.toggle('show'); if ($('#signDlg').classList.contains('show')) $('#signText').focus(); });
+  $('#signApply').addEventListener('click', async () => { closeSign(); await applySign({ text: $('#signText').value || '夕焼け TOKYO', color: signColor, style: signStyle }); });
+  $('#signRemove').addEventListener('click', () => { closeSign(); applySign(null); });
+  $('#signText').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('#signApply').click(); if (e.key === 'Escape') closeSign(); });
 
   renderer.domElement.addEventListener('dblclick', (e) => {
     if (state.mode !== 'explore') return;
@@ -291,7 +479,13 @@ function bindUI() {
     if (k === 'c') setMode(state.mode === 'cinematic' ? 'explore' : 'cinematic');
     else if (k === 'escape') { if (state.mode === 'cinematic') setMode('explore'); else toggleUI(true); }
     else if (k === 'h') toggleUI();
-    else if (k === 'p') screenshot();
+    else if (k === 'p') screenshot(e);
+    else if (k === 'r') toggleRecord(e.shiftKey);
+    else if (k === 'b') setHanabi(!state.hanabi);
+    else if (k === 'i') setInk(!state.ink);
+    else if (k === 'l') setLife(!state.life);
+    else if (k === 'z') { const ks = Object.keys(SEASONS); setSeason(ks[(ks.indexOf(atmos.season) + 1) % ks.length]); }
+    else if (k === 'x') { const ks = Object.keys(WEATHERS); setWeather(ks[(ks.indexOf(atmos.weather) + 1) % ks.length]); }
     else if (k === 'f') $('#btnFull').click();
     else if (k === 'm') $('#btnSound').click();
     else if (k === 't') {
@@ -315,6 +509,8 @@ function resize() {
   renderer.setPixelRatio(pixelRatio);
   renderer.setSize(w, h);
   post.setSize(w, h, pixelRatio);
+  atmos.setSize(w * pixelRatio, h * pixelRatio);
+  hanabi.setPixelRatio(pixelRatio);
 }
 window.addEventListener('resize', resize);
 
@@ -326,8 +522,10 @@ const tmpF = new THREE.Vector3(), tmpR = new THREE.Vector3(), tmpT = new THREE.V
 const bandsBuf = new Float32Array(5);
 const eqBars = $$('#nowplaying .eq i');
 
+let forcedDt = null, adapt = 0;
 function loop() {
-  const dt = Math.min(clock.getDelta(), 0.1);
+  const real = clock.getDelta();
+  const dt = forcedDt ?? Math.min(real, 0.1);
   simT += dt;
   const t = simT;
   skyU.uTime.value = t;
@@ -338,7 +536,35 @@ function loop() {
     if (nt > 1) nt = 0;
     setTime(nt);
   }
+  // seasons / weather easing (re-derives the environment while it moves)
+  const prevFlake = atmos.flakeMode;
+  if (atmos.update(dt, env, state.time)) {
+    setTime(state.time);
+    music.setWeather(atmos.st.rainK, atmos.st.snowK);
+  }
+  if (prevFlake !== atmos.flakeMode) { updateFlakeLabel(); setTime(state.time); }
   updateGroups(t);
+  // fireworks light the sky a little
+  hanabi.update(t, flashCol);
+  const fl = Math.min(1.5, flashCol.r + flashCol.g + flashCol.b);
+  hemi.intensity = env.hemiInt + fl * 0.35;
+  if (fl > 0.001) hemi.color.copy(env.hemiSky).lerp(tmpCol.copy(flashCol).multiplyScalar(1 / fl), Math.min(0.6, fl * 0.5));
+  else hemi.color.copy(env.hemiSky);
+  if (life && state.life) life.update(dt, t, atmos.st.rainK);
+  rain.uniforms.uTime.value = t;
+  rain.uniforms.uCam.value.copy(camera.position);
+  // eye adaptation: down among the signs the city is far brighter than from the hill
+  {
+    const c = camera.position, sat = THREE.MathUtils.clamp;
+    const inDistrict = sat((-44 - c.z) / 24, 0, 1) * sat((70 - Math.abs(c.x)) / 25, 0, 1) * sat((48 - c.y) / 26, 0, 1);
+    const gy = inFine(c.x, c.z) ? groundH(Math.floor(c.x), Math.floor(c.z)) : 0;
+    const inOld = sat((c.z + 40) / 20, 0, 1) * sat((60 - Math.abs(c.x)) / 30, 0, 1) * sat((gy + 26 - c.y) / 16, 0, 1);
+    const night = THREE.MathUtils.smoothstep(state.time, 0.3, 0.9);
+    const target = Math.max(inDistrict * (0.35 + 0.65 * night), inOld * 0.6 * night);
+    adapt += (target - adapt) * Math.min(1, dt * 2.5);
+    renderer.toneMappingExposure = env.exposure * (1 - 0.5 * adapt);
+    post.bloom.strength = state.bloomOn === false ? 0 : env.bloom * 0.8 * (1 - 0.6 * adapt);
+  }
 
   // trains
   if (city) {
@@ -400,13 +626,20 @@ function loop() {
   scene.children[0].position.copy(camera.position);
 
   renderer.info.reset();
+  camera.updateMatrixWorld();
+  atmos.renderReflection(camera);
   post.composer.render();
+  if (rec) {
+    const s = Math.floor((performance.now() - recStart) / 1000);
+    $('#recTime').textContent = `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+  }
 
   // adaptive resolution + stats
   frameAcc += dt; frameN++;
   if (frameAcc > 1.0) {
     const ms = (frameAcc / frameN) * 1000;
-    if (ms > 30 && pixelRatio > 0.7) { pixelRatio = Math.max(0.7, pixelRatio - 0.2); resize(); goodTime = 0; }
+    if (rec) { /* keep the canvas size fixed while recording */ }
+    else if (ms > 30 && pixelRatio > 0.7) { pixelRatio = Math.max(0.7, pixelRatio - 0.2); resize(); goodTime = 0; }
     else if (ms < 17) { goodTime += frameAcc; if (goodTime > 6 && pixelRatio < Math.min(MAX_PR, 1.5)) { pixelRatio = Math.min(MAX_PR, 1.5, pixelRatio + 0.15); resize(); goodTime = 0; } }
     statT = ms;
     const info = renderer.info.render;
@@ -425,6 +658,11 @@ async function boot() {
     $('#loader .stage').textContent = label;
   });
   director = new Director(camera, ui, trainCtx);
+  life = createLife(scene, city.palette, city.material);
+  hanabi.onBurst(({ at, when, kind, radius }) => {
+    const d = at.distanceTo(camera.position);
+    music.boom(when + (d * 0.6) / 343, Math.min(1, radius / 90) * Math.max(0.3, 1 - d / 2600), kind === 'chrysanthemum' || kind === 'willow');
+  });
   console.info('[afterglow] built', city.stats);
   renderer.shadowMap.needsUpdate = true;
   document.body.classList.add('ready');
@@ -437,23 +675,31 @@ async function boot() {
   setTimeout(() => $('#help').classList.remove('show'), 11000);
   setTimeout(() => { if (!music.on) toast('♪ Press M for the Afterglow FM soundtrack'); }, 6500);
   const q = new URLSearchParams(location.search);
+  if (q.has('season')) setSeason(q.get('season'), true);
+  if (q.has('weather')) setWeather(q.get('weather'), true);
+  if (q.get('style') === 'ink') setInk(true);
+  if (q.get('hanabi') === '1') setHanabi(true, true);
+  if (q.get('life') === '0') setLife(false);
+  if (q.has('sign')) applySign({ text: q.get('sign'), color: q.get('signc'), style: q.get('signs') }, false);
   if (q.has('cine')) setMode('cinematic');
   if (q.has('t')) setTime(parseFloat(q.get('t')));
+  if (q.has('cam')) {
+    const c = q.get('cam').split(',').map(Number);
+    if (c.length === 6 && c.every(Number.isFinite)) { fly = null; camera.position.set(c[0], c[1], c[2]); controls.target.set(c[3], c[4], c[5]); controls.update(); }
+  }
   if (q.has('view') && VIEWS[q.get('view')]) { fly = null; const v = VIEWS[q.get('view')]; camera.position.set(...v.pos); controls.target.set(...v.target); }
   if (q.has('noui')) toggleUI(false);
   // Offscreen capture at a fixed resolution (dev aid; POSTs to the dev server if present).
   const capture = async (name = 'shot', w = 1600, h = 900) => {
-    const prevPR = pixelRatio;
-    renderer.setPixelRatio(1); renderer.setSize(w, h, false);
-    camera.aspect = w / h; camera.updateProjectionMatrix();
-    post.setSize(w, h, 1);
-    renderer.shadowMap.needsUpdate = true;
-    post.composer.render(); post.composer.render();
-    const blob = await new Promise((r) => { post.composer.render(); renderer.domElement.toBlob(r, 'image/png'); });
-    pixelRatio = prevPR; resize();
+    const blob = await renderAt(w, h);
     await fetch('/__shot?name=' + name, { method: 'POST', body: blob });
     return blob.size;
   };
-  window.__afterglow = { camera, controls, setTime, setMode, flyTo, city, director, scene, renderer, VIEWS, capture, post, petals, music, get env() { return env; } };
+  window.__afterglow = {
+    camera, controls, setTime, setMode, flyTo, city, director, scene, renderer, VIEWS, capture, post, petals, music, atmos, hanabi, life,
+    setSeason, setWeather, setHanabi, setInk, setLife, applySign, shareURL, renderAt, get env() { return env; },
+    // dev: advance the simulation without rAF (hidden tabs / headless checks)
+    step(n = 1, dt = 1 / 30) { forcedDt = dt; for (let i = 0; i < n; i++) loop(); forcedDt = null; },
+  };
 }
 boot();

@@ -79,6 +79,16 @@ export function makeShots(ctx) {
       },
     },
     {
+      jp: '花火', en: 'Hanabi over the bay', dur: 14, fov: [50, 44],
+      when: () => ctx.hanabiOn?.(),
+      setup() { ctx.salvo?.(); },
+      cam(u) {
+        const e = easeInOut(u);
+        const p = V(THREE.MathUtils.lerp(-40, 10, e), THREE.MathUtils.lerp(46, 64, e), THREE.MathUtils.lerp(150, 120, e));
+        return { p, l: V(THREE.MathUtils.lerp(-20, 30, e), THREE.MathUtils.lerp(150, 230, e), -800) };
+      },
+    },
+    {
       jp: '黄昏', en: 'Until the lanterns sleep', dur: 15, fov: [46, 50],
       cam(u) {
         const e = ease(u);
@@ -96,33 +106,49 @@ export class Director {
     this.active = false; this.i = 0; this.t = 0; this.paused = false;
     this.look = new THREE.Vector3();
   }
-  start(i = 0) {
-    this.active = true; this.i = i; this.t = 0;
-    this.shots[i].setup?.();
-    this.ui.onShot(this.shots[i], i, this.shots.length);
+  get count() { return this.shots.filter((s) => !s.when || s.when()).length; }
+  get index() { return this.shots.slice(0, this.i).filter((s) => !s.when || s.when()).length; }
+  begin() {
+    this.t = 0; this.dur = this.shots[this.i].dur; this.synced = false;
+    this.shots[this.i].setup?.();
+    this.ui.onShot(this.shots[this.i], this.index, this.count);
   }
+  start(i = 0) { this.active = true; this.i = i; this.begin(); }
   stop() { this.active = false; }
   next(d = 1) {
-    this.i = (this.i + d + this.shots.length) % this.shots.length;
-    this.t = 0;
-    this.shots[this.i].setup?.();
-    this.ui.onShot(this.shots[this.i], this.i, this.shots.length);
+    const n = this.shots.length;
+    let i = this.i;
+    do { i = (i + d + n) % n; } while (this.shots[i].when && !this.shots[i].when());
+    if (d > 0 && i <= this.i) this.onLoop?.();
+    this.i = i;
+    this.begin();
   }
   update(dt) {
     if (!this.active) return;
     if (!this.paused) this.t += dt;
     const s = this.shots[this.i];
-    if (this.t >= s.dur) { this.next(1); return this.update(0); }
-    const u = this.t / s.dur;
+    // music-video mode: stretch the shot so the next one starts on a bar line
+    if (!this.synced && this.t > this.dur - 2.4) {
+      this.synced = true;
+      const tb = this.ctx.timeToNextBar?.();
+      if (tb != null) {
+        const bar = this.ctx.barLength();
+        let cut = this.t + tb;
+        while (cut < this.dur - bar * 0.5) cut += bar;
+        this.dur = Math.max(this.t + 0.9, cut);
+      }
+    }
+    if (this.t >= this.dur) { this.next(1); return this.update(0); }
+    const u = Math.min(1, this.t / this.dur);
     const { p, l } = s.cam(u);
     this.camera.position.copy(p);
     this.look.copy(l);
     this.camera.lookAt(l);
-    const fov = THREE.MathUtils.lerp(s.fov[0], s.fov[1], u);
+    const fov = THREE.MathUtils.lerp(s.fov[0], s.fov[1], u) - (this.ctx.pulse?.() || 0) * 0.45;
     if (Math.abs(this.camera.fov - fov) > 1e-3) { this.camera.fov = fov; this.camera.updateProjectionMatrix(); }
     // dip-to-black between shots
-    const fade = Math.min(1, this.t / 0.7, (s.dur - this.t) / 0.7);
+    const fade = Math.min(1, this.t / 0.7, (this.dur - this.t) / 0.7);
     this.ui.setFade(1 - Math.max(0, fade));
-    this.ui.setProgress((this.i + u) / this.shots.length);
+    this.ui.setProgress((this.index + u) / this.count);
   }
 }

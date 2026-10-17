@@ -15,7 +15,8 @@ import { buildSkyline, buildFarSkyline } from './build/skyline.js';
 import { buildViaduct, buildCar, trackFrame, DECK_TOP } from './build/rail.js';
 import { buildClouds } from './build/clouds.js';
 
-const tick = () => new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
+// rAF lets the loader paint; the timeout keeps building in a hidden tab
+const tick = () => new Promise((r) => { requestAnimationFrame(() => setTimeout(r, 0)); setTimeout(r, 60); });
 
 export async function buildCity(scene, onProgress = () => {}) {
   const t0 = performance.now();
