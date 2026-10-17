@@ -303,20 +303,44 @@ function setLanterns(on, quiet = false) {
   $('#tgLantern').classList.toggle('on', on);
   if (on && !quiet) toast(state.time < 0.5 ? '灯籠 · Sky lanterns — they glow best after dusk' : '灯籠 · Sky lanterns');
 }
-// 祭 Matsuri: a summer festival night in one press
-function festival() {
-  if (state.mode !== 'explore') setMode('explore');
-  setSeason('summer', true);
-  setWeather('clear', true);
-  setTime(0.92);
-  setHanabi(true, true);
-  setLife(true);
-  setLanterns(true, true);
-  lanterns.release(40);
-  if (!music.on) setMusic(true);
-  flyTo(HERO.pos, HERO.target, 2.6);
-  setTimeout(() => hanabi.finale(simT), 5000);
-  toast('祭 · Matsuri — a summer festival night');
+// 祭 Matsuri: a summer festival night in one press. Pressing it again ends
+// the festival and puts the scene back the way it was.
+let finaleTimer = 0;
+function festival(on = !state.matsuri) {
+  if (on === !!state.matsuri) return;
+  if (on) {
+    state.matsuri = {
+      season: atmos.season, weather: atmos.weather, time: state.time, hanabi: state.hanabi,
+      lanterns: state.lanterns, life: state.life, music: music.on,
+    };
+    if (state.mode !== 'explore') setMode('explore');
+    setSeason('summer', true);
+    setWeather('clear', true);
+    setTime(0.92);
+    setHanabi(true, true);
+    setLife(true);
+    setLanterns(true, true);
+    lanterns.release(40);
+    if (!music.on) setMusic(true);
+    flyTo(HERO.pos, HERO.target, 2.6);
+    clearTimeout(finaleTimer);
+    finaleTimer = setTimeout(() => { if (state.matsuri) hanabi.finale(simT); }, 5000);
+    toast('祭 · Matsuri — a summer festival night (press again to end it)');
+  } else {
+    const prev = state.matsuri;
+    state.matsuri = null;
+    clearTimeout(finaleTimer);
+    hanabi.cancelQueued();
+    setSeason(prev.season, true);
+    setWeather(prev.weather, true);
+    setTime(prev.time);
+    setHanabi(prev.hanabi, true);
+    setLanterns(prev.lanterns, true); // lanterns already aloft drift away on their own
+    setLife(prev.life);
+    if (!prev.music && music.on) setMusic(false);
+    toast('祭 · The festival is over');
+  }
+  $('#btnMatsuri').classList.toggle('on', !!state.matsuri);
 }
 // 空文字 sky-writing
 function skyWrite(text, palette = 'rainbow', repeat = false) {
@@ -504,7 +528,7 @@ function bindUI() {
   $('#tgInk').addEventListener('click', () => setInk(!state.ink));
   $('#tgLife').addEventListener('click', () => setLife(!state.life));
   $('#tgLantern').addEventListener('click', () => setLanterns(!state.lanterns));
-  $('#btnMatsuri').addEventListener('click', festival);
+  $('#btnMatsuri').addEventListener('click', () => festival());
   // sky-writing dialog
   let skyPal = 'rainbow';
   const sp = $('#skyPal');
@@ -825,7 +849,7 @@ async function boot() {
     hanabi.setMessage(state.sky, simT, 9);
     $('#skyText').value = text;
   }
-  if (q.has('matsuri')) festival();
+  if (q.has('matsuri')) festival(true);
   if (q.has('sign')) applySign({ text: q.get('sign'), color: q.get('signc'), style: q.get('signs') }, false);
   if (q.has('cine')) setMode('cinematic');
   if (q.has('t')) setTime(parseFloat(q.get('t')));

@@ -190,18 +190,13 @@ export function createHanabi() {
           bright = step(0.0, tr) * step(tr, RISE) * (0.5 + 0.5 * u) * (1.0 - position.y * 0.7) * 2.2;
           col = vec3(1.0, 0.78, 0.5);
           size = 0.8;
-        } else if (t > 0.0 && planar) {
-          // shapes and sky-writing: sparks fly to targets on a plane facing the viewer
-          bool text = kind > 6.5;
+        } else if (t > 0.0 && planar && kind > 6.5) {
+          // sky-writing: burst as a sphere, then the sparks rearrange into the letters
           float W = uRadius[s];
           vec3 tgt = (uRight[s] * aTgt.x + vec3(0.0, 1.0, 0.0) * aTgt.y) * W;
-          float hold = text ? 4.6 : 2.3, life = hold + 1.7;
-          vec3 pp;
-          if (text) {
-            // burst as a sphere, then rearrange into the letters
-            vec3 burst = position * min(W, 140.0) * 0.55 * (1.0 - exp(-3.2 * t));
-            pp = mix(burst, tgt, smoothstep(0.35, 1.55, t));
-          } else pp = tgt * (1.0 - exp(-4.5 * t)) + position * 6.0 * exp(-4.0 * t);
+          float hold = 4.6, life = hold + 1.7;
+          vec3 burst = position * min(W, 140.0) * 0.55 * (1.0 - exp(-3.2 * t));
+          vec3 pp = mix(burst, tgt, smoothstep(0.35, 1.55, t));
           float fall = max(0.0, t - hold);
           pp.y -= 8.0 * fall * fall;
           pp += position * fall * 7.0;
@@ -209,10 +204,39 @@ export function createHanabi() {
           bright = 1.3 * smoothstep(0.0, 0.12, t) * (1.0 - smoothstep(hold, life, t)) * (1.0 + 0.6 * exp(-t * 5.0));
           bright *= mix(1.0, 0.35 + 0.65 * step(0.5, fract(aInfo.w * 31.0 + uTime * 8.0)), smoothstep(hold - 0.5, hold + 0.5, t));
           // trails while moving; once settled only the lead spark shows so letters stay crisp
-          float settled = smoothstep(text ? 1.5 : 0.6, text ? 2.0 : 1.0, t) * (1.0 - smoothstep(hold, hold + 0.3, t));
+          float settled = smoothstep(1.5, 2.0, t) * (1.0 - smoothstep(hold, hold + 0.3, t));
           bright *= mix(1.0 - aInfo.y / ${LAGS}.0 * 0.8, aInfo.y < 0.5 ? 1.7 : 0.0, settled);
           col = mix(vec3(1.25, 1.15, 1.0), base, smoothstep(0.05, 0.6, t));
-          size = text ? uDot[s] : 1.15;
+          size = uDot[s];
+        } else if (t > 0.0 && planar) {
+          // katamono (shaped shell): a few dozen stars thrown into the outline.
+          // They keep swelling, sag under gravity from the start, scatter a
+          // little in depth and burn out one by one, like a real shell.
+          float W = uRadius[s];
+          if (aTgt.x > 5.0) {
+            // spare sparks: a faint glitter halo around the shape
+            vec3 d = position * W * 0.75 * (1.0 - exp(-2.2 * t));
+            d.y -= 6.0 * t * t;
+            p = o + d;
+            float lh = 1.3 + aInfo.w * 0.9;
+            bright = step(0.7, fract(aInfo.w * 5.3)) * 0.5 * smoothstep(0.0, 0.15, t) * (1.0 - smoothstep(lh * 0.5, lh, t));
+            bright *= 0.4 + 0.6 * step(0.5, fract(aInfo.w * 23.0 + uTime * 10.0));
+            bright *= 1.0 - aInfo.y / ${LAGS}.0 * 0.9;
+            col = mix(vec3(1.2, 1.1, 0.9), base, 0.4);
+            size = 0.6;
+          } else {
+            vec3 tgt = (uRight[s] * aTgt.x + vec3(0.0, 1.0, 0.0) * aTgt.y) * W;
+            float open = 1.0 - exp(-2.6 * t);
+            vec3 pp = tgt * open * (1.0 + 0.06 * t) + position * W * 0.035 * open;
+            pp.y -= 4.5 * t * t;
+            p = o + pp;
+            float life = 3.0 + aInfo.w * 1.1;
+            bright = 1.6 * smoothstep(0.0, 0.1, t) * (1.0 - smoothstep(life - 1.0, life, t)) * (1.0 + 0.5 * exp(-t * 4.0));
+            bright *= mix(1.0, 0.45 + 0.55 * step(0.45, fract(aInfo.w * 31.0 + uTime * 9.0)), smoothstep(life - 1.2, life - 0.5, t));
+            bright *= 1.0 - aInfo.y / ${LAGS}.0 * 0.85;
+            col = mix(vec3(1.25, 1.15, 1.0), base, smoothstep(0.05, 0.4, t));
+            size = mix(1.55, 1.0, t / life);
+          }
         } else if (t > 0.0) {
           float willow = step(0.5, kind) * step(kind, 1.5);
           float strobe = step(4.5, kind);
@@ -258,7 +282,7 @@ export function createHanabi() {
   const flashes = [];
   const listeners = [];
   const queue = [];
-  const tmp = new THREE.Color(), fwd = new THREE.Vector3(), right = new THREE.Vector3();
+  const tmp = new THREE.Color(), fwd = new THREE.Vector3(), right = new THREE.Vector3(), UP = new THREE.Vector3(0, 1, 0);
   const pick = (a) => a[Math.floor(Math.random() * a.length)];
 
   function writeTargets(s, pts, jitter) {
@@ -277,6 +301,20 @@ export function createHanabi() {
     tgtAttr.needsUpdate = true;
   }
 
+  // one spark per star, spread over the sparks so their scatter directions
+  // cover the sphere; the rest are flagged (x = 9) for the glitter halo
+  function writeShape(s, stars) {
+    const base = s * per * 2;
+    const stride = Math.floor(SPARKS / stars.length);
+    for (let i = 0; i < SPARKS + ROCKET; i++) {
+      const k = i / stride;
+      const st = i < SPARKS && i % stride === 0 && k < stars.length ? stars[k] : [9, 9];
+      for (let l = 0; l < LAGS; l++) { const q = base + (i * LAGS + l) * 2; aTgt[q] = st[0]; aTgt[q + 1] = st[1]; }
+    }
+    tgtAttr.addUpdateRange(base, per * 2);
+    tgtAttr.needsUpdate = true;
+  }
+
   // a point in front of the viewer, high in the sky, and the plane facing them
   function frontOfViewer(dist = 820) {
     viewer.getWorldDirection(fwd);
@@ -288,14 +326,26 @@ export function createHanabi() {
     o.y = THREE.MathUtils.clamp(viewer.position.y + dist * Math.tan(elev), 170, 700);
     return o;
   }
-  function faceViewer(s, at) {
+  // a shape's outline as ~70-110 imperfect stars (more for the intricate butterfly); spare sparks become the halo
+  function shapeStars(name) {
+    const n = Math.floor(name === 'butterfly' ? THREE.MathUtils.randFloat(170, 210) : THREE.MathUtils.randFloat(70, 110));
+    const roll = THREE.MathUtils.randFloat(-0.3, 0.3), squash = THREE.MathUtils.randFloat(0.86, 1.08);
+    const c = Math.cos(roll), sn = Math.sin(roll);
+    return shapePoints(name, n).map(([x, y], i) => {
+      const r = 1 + (Math.random() - 0.5) * 0.1;               // a little radial wobble
+      const tx = (Math.random() - 0.5) * 0.035, ty = (Math.random() - 0.5) * 0.035;
+      x = x * r * squash + tx; y = y * r + ty;
+      return [x * c - y * sn, x * sn + y * c];
+    });
+  }
+  function faceViewer(s, at, yaw = 0) {
     const r = uniforms.uRight.value[s];
     if (!viewer) { r.set(1, 0, 0); return; }
     fwd.copy(at).sub(viewer.position); fwd.y = 0;
     if (fwd.lengthSq() < 1) fwd.set(0, 0, -1);
     fwd.normalize();
     right.set(-fwd.z, 0, fwd.x); // camera-right for a viewer looking along fwd
-    r.copy(right);
+    r.copy(right).applyAxisAngle(UP, yaw);
   }
 
   // opts: { at, kind, mode, palette: [c1, c2, c3], shape, text, radius }
@@ -311,9 +361,9 @@ export function createHanabi() {
     let mode = opts.mode != null ? opts.mode : Math.random() < 0.45 ? 0 : pick([1, 2, 2, 3, 3, 4]);
     let radius = opts.radius || THREE.MathUtils.randFloat(62, 105) * (kind === 2 ? 1.15 : 1);
     if (kind === 6) {
-      writeTargets(s, shapePoints(opts.shape || pick(SHAPES), SPARKS), 0.02);
+      writeShape(s, shapeStars(opts.shape || pick(SHAPES)));
       radius = opts.radius || THREE.MathUtils.randFloat(85, 120);
-      faceViewer(s, o);
+      faceViewer(s, o, THREE.MathUtils.randFloat(-0.45, 0.45));
     } else if (kind === 7) {
       const { bmp, lit } = textTargets(opts.text || '花火');
       const sp = THREE.MathUtils.clamp(780 / bmp.w, 7, 15);
@@ -369,6 +419,7 @@ export function createHanabi() {
     setMessage(m, time = 0, delay = 0) { message = m && m.text ? m : null; nextMessage = time + delay; },
     onBurst(fn) { listeners.push(fn); },
     launch, write, shape, finale,
+    cancelQueued() { queue.length = 0; },
     // launch toward a direction from the viewer (tap the sky)
     launchToward(time, dir) {
       const o = viewer.position.clone().addScaledVector(dir, 850);
