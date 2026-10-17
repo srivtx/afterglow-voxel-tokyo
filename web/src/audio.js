@@ -1,8 +1,13 @@
 // 夕焼けラジオ · Afterglow FM
 // A generative lo-fi / city-pop soundtrack composed live in WebAudio — no
 // audio files. Electric piano (FM), koto (Karplus-Strong), bass, pads,
-// swung drums, vinyl crackle, fūrin chimes, plus a positional train.
-// The mood follows the time of day and changes on the next bar line.
+// swung drums, vinyl crackle and fūrin chimes. The mood follows the time of
+// day and changes on the next bar line.
+//
+// The world's own sound (wind, rain, thunder, trains, fireworks and the
+// soundscape in soundscape.js) runs on a separate channel, so muting the music
+// never silences the city.
+import { createSoundscape } from './soundscape.js';
 
 const MOODS = {
   golden: {
@@ -35,6 +40,7 @@ const RHYTHMS = [ // melody rhythm templates over 2 bars (32 sixteenths): [step,
 
 export function createMusic() {
   let ctx = null, running = false, userOff = false, timer = null;
+  let ambOn = false, ambUserOff = false, ambTimer = null, amb, ambOut, ambVerbIn, ambVol = 0.8, windG, scape = null, mix;
   let master, musicBus, lofi, shaper, drumBus, verb, verbIn, delay, delayIn, duck, analyser, wow, out, vol = 0.7;
   let noiseBuf, crackleSrc, windSrc, trainGain, trainPan, trainLP;
   const ksCache = new Map();
@@ -58,13 +64,23 @@ export function createMusic() {
   }
   function init() {
     ctx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'playback' });
+    // music: master (volume) -> out (on/off fade) -> analyser -> mix
+    // city:  amb (volume) -> ambOut (on/off fade) -> mix
+    // mix -> weather low-pass -> compressor -> speakers (and clip recording)
     out = ctx.createGain(); out.gain.value = 0;
+    mix = ctx.createGain();
     const comp = ctx.createDynamicsCompressor();
     comp.threshold.value = -14; comp.ratio.value = 3; comp.attack.value = 0.01; comp.release.value = 0.25;
     analyser = ctx.createAnalyser(); analyser.fftSize = 256; analyser.smoothingTimeConstant = 0.82;
     master = ctx.createGain(); master.gain.value = vol;
     weatherLP = ctx.createBiquadFilter(); weatherLP.type = 'lowpass'; weatherLP.frequency.value = 20000; weatherLP.Q.value = 0.4;
-    master.connect(weatherLP).connect(comp).connect(out); out.connect(analyser); analyser.connect(ctx.destination);
+    master.connect(out).connect(analyser).connect(mix);
+    mix.connect(weatherLP).connect(comp).connect(ctx.destination);
+    mix._comp = comp;
+    mix._meter = ctx.createAnalyser(); mix._meter.fftSize = 1024; comp.connect(mix._meter);
+    ambOut = ctx.createGain(); ambOut.gain.value = 0;
+    amb = ctx.createGain(); amb.gain.value = ambVol;
+    amb.connect(ambOut).connect(mix);
 
     // lo-fi bus: soft saturation + wobbling low-pass
     musicBus = ctx.createGain();
@@ -88,6 +104,12 @@ export function createMusic() {
     const verbOut = ctx.createGain(); verbOut.gain.value = 0.9;
     const verbLP = ctx.createBiquadFilter(); verbLP.type = 'lowpass'; verbLP.frequency.value = 5200;
     verbIn.connect(verb).connect(verbLP).connect(verbOut).connect(master);
+    // the city has its own (wider, darker) space
+    ambVerbIn = ctx.createGain();
+    const ambVerb = ctx.createConvolver(); ambVerb.buffer = impulse(3.4, 2.2);
+    const ambVerbLP = ctx.createBiquadFilter(); ambVerbLP.type = 'lowpass'; ambVerbLP.frequency.value = 3800;
+    const ambVerbOut = ctx.createGain(); ambVerbOut.gain.value = 0.7;
+    ambVerbIn.connect(ambVerb).connect(ambVerbLP).connect(ambVerbOut).connect(amb);
 
     delayIn = ctx.createGain();
     delay = ctx.createDelay(2);
@@ -129,7 +151,8 @@ export function createMusic() {
     const lfo = ctx.createOscillator(); lfo.frequency.value = 0.06;
     const lfoG = ctx.createGain(); lfoG.gain.value = 0.06;
     lfo.connect(lfoG).connect(wg.gain); lfo.start();
-    windSrc.connect(wlp).connect(wg).connect(master); windSrc.start();
+    windG = ctx.createGain(); windG.gain.value = 1;
+    windSrc.connect(wlp).connect(wg).connect(windG).connect(amb); windSrc.start();
 
     // rain: a hiss bed + a lower patter, gain driven by the weather
     rainGain = ctx.createGain(); rainGain.gain.value = 0;
@@ -142,7 +165,7 @@ export function createMusic() {
     const rpb = ctx.createBiquadFilter(); rpb.type = 'bandpass'; rpb.frequency.value = 700; rpb.Q.value = 0.6;
     const rpg = ctx.createGain(); rpg.gain.value = 0.5;
     rp.connect(rpb).connect(rpg).connect(rainGain);
-    rainGain.connect(out);
+    rainGain.connect(amb);
     rainHiss.start(); rp.start();
 
     // train: rumble bed (gain/pan driven from the scene)
@@ -150,8 +173,10 @@ export function createMusic() {
     trainLP = ctx.createBiquadFilter(); trainLP.type = 'lowpass'; trainLP.frequency.value = 160;
     trainGain = ctx.createGain(); trainGain.gain.value = 0;
     trainPan = ctx.createStereoPanner();
-    rs.connect(trainLP).connect(trainGain).connect(trainPan).connect(out);
+    rs.connect(trainLP).connect(trainGain).connect(trainPan).connect(amb);
     rs.start();
+
+    scape = createSoundscape(ctx, { out: amb, verbIn: ambVerbIn, noise: noiseBuf, brown: wb });
   }
 
   // --------------------------------------------------------------- voices
@@ -299,32 +324,33 @@ export function createMusic() {
     o.frequency.setValueAtTime(f, t); o.frequency.exponentialRampToValueAtTime(f * 0.55, t + 0.06);
     const g = ctx.createGain(); g.gain.setValueAtTime(0.03 * lvl, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.08);
     const pan = ctx.createStereoPanner(); pan.pan.value = Math.random() * 1.6 - 0.8;
-    o.connect(g).connect(pan).connect(out); o.start(t); o.stop(t + 0.1);
+    o.connect(g).connect(pan).connect(amb); o.start(t); o.stop(t + 0.1);
   }
   function thunder(t, lvl) {
     const n = ctx.createBufferSource(); n.buffer = wbBuf(); n.playbackRate.value = 0.35 + Math.random() * 0.2;
     const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.setValueAtTime(900, t); lp.frequency.exponentialRampToValueAtTime(120, t + 5);
     const g = ctx.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.9 * lvl, t + 0.25 + Math.random() * 0.4);
     g.gain.setTargetAtTime(0.0001, t + 1.2, 1.4);
-    n.connect(lp).connect(g).connect(out); n.start(t); n.stop(t + 7);
+    n.connect(lp).connect(g).connect(amb); n.start(t); n.stop(t + 7);
+    const vs = ctx.createGain(); vs.gain.value = 0.6; g.connect(vs).connect(ambVerbIn);
   }
   // fireworks: low thump + a crackle tail
   function boom(t, size, crackle) {
     const o = ctx.createOscillator(); o.frequency.setValueAtTime(70, t); o.frequency.exponentialRampToValueAtTime(28, t + 0.6);
     const g = ctx.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.75 * size, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + 1.4);
-    o.connect(g).connect(master); o.start(t); o.stop(t + 1.5);
+    o.connect(g).connect(amb); o.start(t); o.stop(t + 1.5);
     const n = ctx.createBufferSource(); n.buffer = wbBuf(); n.playbackRate.value = 0.8;
     const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 500;
     const ng = ctx.createGain(); ng.gain.setValueAtTime(0.5 * size, t); ng.gain.exponentialRampToValueAtTime(0.0001, t + 1.8);
-    n.connect(lp).connect(ng).connect(master); n.start(t); n.stop(t + 2);
-    const vs = ctx.createGain(); vs.gain.value = 0.5; ng.connect(vs).connect(verbIn);
+    n.connect(lp).connect(ng).connect(amb); n.start(t); n.stop(t + 2);
+    const vs = ctx.createGain(); vs.gain.value = 0.5; ng.connect(vs).connect(ambVerbIn);
     if (crackle) for (let i = 0; i < 26; i++) {
       const ct = t + 0.9 + Math.random() * 1.6;
       const c = noise(ct, 0.02);
       const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 3000 + Math.random() * 3000;
       const cg = ctx.createGain(); cg.gain.setValueAtTime(0.05 * size, ct); cg.gain.exponentialRampToValueAtTime(0.0001, ct + 0.018);
       const cp = ctx.createStereoPanner(); cp.pan.value = Math.random() * 1.2 - 0.6;
-      c.connect(hp).connect(cg).connect(cp).connect(master);
+      c.connect(hp).connect(cg).connect(cp).connect(amb);
     }
   }
 
@@ -395,10 +421,6 @@ export function createMusic() {
   function scheduler() {
     if (!running) return;
     const ahead = document.hidden ? 1.5 : 0.25;
-    if (rainLevel > 0.05) {
-      if (ctx.currentTime - lastDrip > 0.12 && Math.random() < rainLevel * 0.35) { drip(ctx.currentTime + 0.05 + Math.random() * 0.1, rainLevel); lastDrip = ctx.currentTime; }
-      if (rainLevel > 0.6 && ctx.currentTime - lastThunder > 28 && Math.random() < 0.004) { thunder(ctx.currentTime + 0.1, rainLevel); lastThunder = ctx.currentTime; }
-    }
     if (fileSrc) { nextTime = ctx.currentTime + 0.05; return; }
     while (nextTime < ctx.currentTime + ahead) {
       const sixteenth = 60 / mood.bpm / 4;
@@ -411,8 +433,23 @@ export function createMusic() {
         if (pendingMood) { mood = pendingMood; pendingMood = null; lofi.frequency.setTargetAtTime(mood.lpf, nextTime, 1.5); }
       }
     }
+  }
+
+  // the city channel: weather one-shots, train clacks and the soundscape
+  function ambScheduler() {
+    if (!ambOn) return;
+    const t = ctx.currentTime;
+    if (rainLevel > 0.05) {
+      if (t - lastDrip > 0.12 && Math.random() < rainLevel * 0.35 * 2) { drip(t + 0.05 + Math.random() * 0.1, rainLevel); lastDrip = t; }
+      if (rainLevel > 0.6 && t - lastThunder > 28 && Math.random() < 0.008) { thunder(t + 0.1, rainLevel); lastThunder = t; }
+    }
     // train clacks follow the scene's proximity
-    if (trainLevel > 0.04 && ctx.currentTime - lastClack > 1.15) { clack(ctx.currentTime + 0.05, trainLevel); lastClack = ctx.currentTime; }
+    if (trainLevel > 0.04 && t - lastClack > 1.15) { clack(t + 0.05, trainLevel); lastClack = t; }
+    scape.tick();
+  }
+  function ensure() {
+    if (!ctx) init();
+    if (ctx.state !== 'running') ctx.resume();
   }
 
   // ------------------------------------------------------------- API
@@ -422,14 +459,12 @@ export function createMusic() {
     get mood() { return fileSrc ? { name: fileName, jp: '持ち込み', bpm: '—' } : pendingMood || mood; },
     get fileMode() { return !!fileSrc; },
     start() {
-      if (!ctx) init();
-      ctx.resume();
+      ensure();
       if (running) return;
       running = true; userOff = false;
       out.gain.cancelScheduledValues(ctx.currentTime);
       out.gain.setValueAtTime(out.gain.value, ctx.currentTime);
       out.gain.linearRampToValueAtTime(1, ctx.currentTime + 2.5);
-      rainGain.gain.setTargetAtTime(rainLevel * 0.55, ctx.currentTime, 0.6);
       bar = 0; step = 0; phrase = null;
       nextTime = ctx.currentTime + 0.1;
       timer = setInterval(scheduler, 25);
@@ -447,6 +482,42 @@ export function createMusic() {
     },
     setVolume(v) { vol = v; if (master) master.gain.setTargetAtTime(v, ctx.currentTime, 0.05); },
     get volume() { return vol; },
+
+    // ---- city sound (環境音): independent of the music
+    get ambOn() { return ambOn; },
+    get ambUserOff() { return ambUserOff; },
+    // the first user gesture unlocks audio; the city starts unless muted
+    unlock() { if (ambUserOff && !running) return; ensure(); if (!ambUserOff) this.startAmbience(); },
+    startAmbience() {
+      ensure();
+      ambUserOff = false;
+      if (ambOn) return;
+      ambOn = true;
+      ambOut.gain.cancelScheduledValues(ctx.currentTime);
+      ambOut.gain.setValueAtTime(ambOut.gain.value, ctx.currentTime);
+      ambOut.gain.linearRampToValueAtTime(1, ctx.currentTime + 2);
+      rainGain.gain.setTargetAtTime(rainLevel * 0.55, ctx.currentTime, 0.6);
+      ambTimer = setInterval(ambScheduler, 50);
+    },
+    stopAmbience(byUser = true) {
+      if (byUser) ambUserOff = true;
+      if (!ambOn) return;
+      ambOn = false;
+      clearInterval(ambTimer);
+      ambOut.gain.cancelScheduledValues(ctx.currentTime);
+      ambOut.gain.setValueAtTime(ambOut.gain.value, ctx.currentTime);
+      ambOut.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.8);
+    },
+    setAmbVolume(v) { ambVol = v; if (amb) amb.gain.setTargetAtTime(v, ctx.currentTime, 0.05); },
+    get ambVolume() { return ambVol; },
+    // where the listener is and what the world is doing (see soundscape.js)
+    setScene(o) {
+      if (!scape) return;
+      scape.set(o);
+      if (windG) windG.gain.setTargetAtTime(0.7 + Math.min(1.6, Math.max(0, (o.alt - 60) / 160)) + (o.season === 'winter' ? 0.5 : 0), ctx.currentTime, 1);
+    },
+    get scape() { return scape; },
+    get audible() { return running || ambOn; },
     setMood(key) {
       const m = MOODS[key];
       if (!m || m === mood || m === pendingMood) return;
@@ -490,23 +561,23 @@ export function createMusic() {
     setWeather(rain, snow) {
       rainLevel = rain;
       if (!ctx) return;
-      rainGain.gain.setTargetAtTime(running ? rain * 0.55 : 0, ctx.currentTime, 0.6);
+      rainGain.gain.setTargetAtTime(ambOn ? rain * 0.55 : 0, ctx.currentTime, 0.6);
       weatherLP.frequency.setTargetAtTime(20000 - snow * 15500, ctx.currentTime, 0.8);
     },
     // a firework heard `delay` seconds after it bursts
     boom(delay, size = 1, crackle = false) {
-      if (!running || !ctx) return;
+      if (!ambOn || !ctx) return;
       boom(ctx.currentTime + delay, size, crackle);
     },
     // audio for clip recording
     stream() {
-      if (!ctx) init();
-      if (!streamDest) { streamDest = ctx.createMediaStreamDestination(); analyser.connect(streamDest); }
+      ensure();
+      if (!streamDest) { streamDest = ctx.createMediaStreamDestination(); mix._comp.connect(streamDest); }
       return streamDest.stream;
     },
     // drop in your own track: the city reacts to it instead of Afterglow FM
     async playFile(file) {
-      if (!ctx) init();
+      ensure();
       const buf = await ctx.decodeAudioData(await file.arrayBuffer());
       if (fileSrc) { try { fileSrc.stop(); } catch (e) { /* noop */ } }
       if (!running) this.start();
@@ -520,7 +591,7 @@ export function createMusic() {
     setTrain(level, pan) {
       trainLevel = level;
       if (!ctx) return;
-      trainGain.gain.setTargetAtTime(running ? level * 0.9 : 0, ctx.currentTime, 0.2);
+      trainGain.gain.setTargetAtTime(ambOn ? level * 0.9 : 0, ctx.currentTime, 0.2);
       trainPan.pan.setTargetAtTime(Math.max(-1, Math.min(1, pan)), ctx.currentTime, 0.2);
     },
     // debug: peak sample + current bar/section
@@ -528,7 +599,9 @@ export function createMusic() {
       if (!analyser) return null;
       const d = new Float32Array(analyser.fftSize); analyser.getFloatTimeDomainData(d);
       let pk = 0; for (const v of d) pk = Math.max(pk, Math.abs(v));
-      return { peak: pk, bar, section: section(), mood: mood.name };
+      const m = new Float32Array(mix._meter.fftSize); mix._meter.getFloatTimeDomainData(m);
+      let all = 0; for (const v of m) all = Math.max(all, Math.abs(v));
+      return { peak: pk, mixPeak: all, bar, section: section(), mood: mood.name, state: ctx.state, music: running, city: ambOn };
     },
     // 5 spectrum bands 0..1 for the equaliser
     bands(out5) {

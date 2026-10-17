@@ -8,6 +8,10 @@ Everything is generated procedurally in the browser in a few seconds. There are 
 | --- | --- | --- | --- |
 | ![rain](preview-rain.jpg) | ![autumn](preview-autumn.jpg) | ![hanabi](preview-hanabi.jpg) | ![neon rain](preview-neon-rain.jpg) |
 
+| 空文字 · write in the sky | Shaped shells | 祭 · Matsuri night |
+| --- | --- | --- |
+| ![sky writing](preview-skywrite.jpg) | ![shapes](preview-shapes.jpg) | ![matsuri](preview-matsuri.jpg) |
+
 ## Run
 
 ```bash
@@ -19,7 +23,8 @@ Then open <http://localhost:5180>. Any static file server works.
 
 URL options: `?view=hero|shrine|pagoda|street|neon|rail|tower|aerial`, `?t=0..1` (time of day), `?cine` (start the film), `?noui`,
 `?season=spring|summer|autumn|winter`, `?weather=clear|rain|snow`, `?style=ink`, `?hanabi=1`, `?life=0`,
-`?sign=TEXT&signc=pink|cyan|yellow|purple|green|orange|red|white&signs=panel`, `?cam=x,y,z,tx,ty,tz`.
+`?sign=TEXT&signc=pink|cyan|yellow|purple|green|orange|red|white&signs=panel`, `?cam=x,y,z,tx,ty,tz`,
+`?sky=MESSAGE&skyp=rainbow|gold|sakura|neon|confetti` (fireworks that spell it), `?lanterns=1`, `?matsuri`.
 The link button builds these for you.
 
 ## Controls
@@ -33,8 +38,11 @@ The link button builds these for you.
 | C | cinematic mode (Space pause, ← → shots, Esc exit) |
 | T | cycle time of day |
 | M | music: 夕焼けラジオ · Afterglow FM (volume in the now-playing pill) |
+| N | city sound (環境音) on/off, independent of the music |
 | Z / X | cycle season (春 夏 秋 冬) / weather (晴 雨 雪) |
-| B · I · L | fireworks (花火) · ink outlines (墨) · street life (人) |
+| B · I · L · K | fireworks (花火) · ink outlines (墨) · street life (人) · sky lanterns (灯) |
+| Y · G | write a message in the sky (空文字) · grand finale (スターマイン) |
+| Click the sky | launch a shell there (while the fireworks are on) |
 | R | record a clip (Shift+R or Shift-click: record the whole film) |
 | P | screenshot (Shift+P: 4K postcard) · F fullscreen · H hide UI · \` stats |
 | Drop an audio file | the city plays and pulses to your own track |
@@ -51,7 +59,20 @@ The link button builds these for you.
   - Autumn: momiji and falling leaves.
   - Winter: snow-laden branches and blocky snow on every upward face.
   - Rain: the sky and fog go overcast and streaks fall around the camera. Streets turn wet with puddles and raindrop ripples, and a planar reflection mirrors the neon and headlights in the asphalt.
-- **`src/hanabi.js`**: GPU fireworks (peony, willow, ring, chrysanthemum, palm). Each burst briefly lights the city, and its boom arrives late, delayed by distance.
+- **`src/hanabi.js`**: GPU fireworks (peony, willow, ring, chrysanthemum, palm, strobe). Each burst briefly lights the city, and its boom arrives late, delayed by distance.
+  - Colour modes: solid, rainbow, split, confetti and gradient shells.
+  - Shaped shells (heart, star, smile, sakura, butterfly) open on a plane that faces you.
+  - 空文字 sky-writing: a shell bursts as a sphere, then its sparks rearrange into your text (Latin or Japanese), hang there, and drip away. Long messages go up one shell at a time.
+  - The 祭 Matsuri button sets a summer festival night: fireworks, lanterns, music and a grand finale.
+- **`src/lanterns.js`**: sky lanterns that lift off from the old street, the shrine and the district, then drift out over the skyline on the evening air. They are instanced and reflect in wet streets.
+- **`src/soundscape.js`**: 環境音, the city's own sound, on a channel separate from the music. It starts on your first click or key press; N mutes it, and the setting is remembered. Every layer is synthesized and follows where the camera is:
+  - a traffic hum that grows in the district and fades as you climb
+  - crowd murmur on the streets, thinned by rain and snow
+  - cicada showers and minmin-zemi on summer days; higurashi at summer dusk
+  - bell crickets and field crickets on summer and autumn nights
+  - crows at golden hour, and the temple bell at night (louder near the pagoda)
+  - the town's evening chime when dusk arrives
+  - wind that strengthens with altitude and in winter
 - **`src/life.js`**: instanced voxel traffic driving on the left, pedestrians who open umbrellas when it rains, and crows circling the pagoda.
 - **`src/sign.js`**: lets you hang your own neon or lightbox sign on the railway bridge.
 - **Ink style**: a post pass that draws anime-style outlines from depth silhouettes and creases, with soft cel banding.
@@ -62,7 +83,7 @@ The link button builds these for you.
   - It is arranged in sections: intro → groove → melody → busier groove → breakdown.
   - Each time of day has its own mood, which takes over at the next bar line: Golden hour 84 BPM, Sunset 78, Blue hour 72, Night 66 (half-time).
   - Neon signs pulse with the kick drum, cinematic cuts trigger bell accents, entering cinematic mode starts the music, and passing trains rumble and clack, panned to their position on screen.
-  - Weather has its own sound: rain hiss, drips and the odd roll of thunder; snow muffles the mix.
+  - Weather has its own sound: rain hiss, drips and the odd roll of thunder; snow muffles the mix. These, the trains and the fireworks belong to the city channel, so they keep playing with the music off.
   - If you drop in your own track, an onset detector drives the neon instead.
   - Recording captures the canvas together with the soundtrack.
 
