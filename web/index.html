@@ -216,8 +216,51 @@
     }
 
     /* ---------- 散歩 walk mode ---------- */
-    #minimap { position: fixed; left: 26px; top: 50%; transform: translateY(-50%); width: 140px; height: 195px; border-radius: 16px; z-index: 9; opacity: 0; pointer-events: none; image-rendering: pixelated; }
-    body.walk.ready:not(.noui):not(.cine) #minimap { opacity: 0.94; }
+    body.walk #help { opacity: 0 !important; }
+    #mapBox { position: fixed; left: 26px; top: 50%; transform: translateY(-50%); z-index: 9; width: 150px; display: flex; flex-direction: column; gap: 6px; opacity: 0; pointer-events: none; }
+    body.walk.ready:not(.noui):not(.cine) #mapBox { opacity: 1; pointer-events: auto; }
+    body.walk.ready.mapopen:not(.noui) #mapBox { opacity: 0; pointer-events: none; transition-duration: 0.15s; }
+    #minimap { display: block; width: 150px; height: 208px; border-radius: 16px; cursor: zoom-in; transition: transform 0.25s, border-color 0.25s, box-shadow 0.25s; }
+    #minimap:hover { transform: scale(1.03); border-color: rgba(255, 200, 160, 0.55); box-shadow: 0 0 26px rgba(255, 150, 120, 0.28); }
+    #mapHere { padding: 6px 8px 7px; border-radius: 11px; text-align: center; line-height: 1.3; pointer-events: none; }
+    #mapHere:empty { display: none; }
+    #mapHere b { display: block; font-family: var(--mincho); font-size: 15px; letter-spacing: 0.12em; }
+    #mapHere span { display: block; font-size: 8.5px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--dim); }
+    #mapTip { font-size: 9px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--dim); text-align: center; text-shadow: 0 1px 6px rgba(0, 0, 0, 0.6); pointer-events: none; }
+    #mapTip kbd { font-size: 9px; padding: 1px 5px; }
+    #mapBig { position: fixed; inset: 0; z-index: 16; display: none; place-items: center; background: rgba(10, 6, 22, 0.45); opacity: 0; transition: opacity 0.3s ease; }
+    #mapBig.show { display: grid; }
+    body.mapopen #mapBig { opacity: 1; }
+    #mapBig .panel { --mh: min(calc(100vh - 150px), 780px); border-radius: 20px; padding: 14px 16px 12px; display: flex; flex-direction: column; gap: 10px; background: rgba(22, 16, 44, 0.74); box-shadow: 0 30px 90px rgba(0, 0, 0, 0.5); }
+    #mapBig header { display: flex; align-items: center; gap: 10px; }
+    #mapBig header b { font-family: var(--mincho); font-size: 22px; letter-spacing: 0.14em; }
+    #mapBig header span { font-size: 10px; letter-spacing: 0.26em; text-transform: uppercase; color: var(--dim); }
+    #mapCount { margin-left: auto; font-style: normal; font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--accent2); }
+    #mapClose { width: 32px; height: 32px; border-radius: 50%; border: 1px solid var(--line); background: rgba(255, 255, 255, 0.08); color: var(--ink); font-size: 13px; cursor: pointer; transition: background 0.2s; }
+    #mapClose:hover { background: rgba(255, 255, 255, 0.18); }
+    #mapBig .body { display: flex; gap: 14px; }
+    #bigmap { display: block; height: var(--mh); width: calc(var(--mh) * 0.7198); border-radius: 14px; border: 1px solid var(--line); }
+    #mapList { list-style: none; margin: 0; padding: 0; width: 250px; display: flex; flex-direction: column; gap: 4px; overflow-y: auto; max-height: var(--mh); }
+    #mapList li { display: grid; grid-template-columns: 4.4em 1fr; column-gap: 8px; align-items: baseline; padding: 7px 10px; border-radius: 11px; border: 1px solid transparent; color: var(--dim); transition: background 0.2s, border-color 0.2s; }
+    #mapList li b { grid-row: span 2; font-family: var(--mincho); font-size: 15px; white-space: nowrap; color: rgba(246, 238, 252, 0.4); }
+    #mapList li span { font-size: 11.5px; }
+    #mapList li i { font-style: normal; font-size: 8.5px; letter-spacing: 0.16em; text-transform: uppercase; opacity: 0.65; }
+    #mapList li.on, #mapList li.on b { color: var(--ink); }
+    #mapList li.here { border-color: rgba(255, 179, 90, 0.45); background: rgba(255, 179, 90, 0.1); }
+    #mapList li.here i { color: var(--accent2); opacity: 1; }
+    #mapList li.go { cursor: pointer; }
+    #mapList li.go:hover { background: rgba(255, 255, 255, 0.08); border-color: var(--line); }
+    #mapList li.go:hover i { color: var(--accent); opacity: 1; }
+    #mapBig footer { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; font-size: 10.5px; color: var(--dim); }
+    #mapBig footer .lg { display: inline-flex; align-items: center; gap: 5px; }
+    #mapBig footer .lg i { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+    #mapBig footer .tip { margin-left: auto; }
+    #mapBig footer .tipT { display: none; }
+    @media (pointer: coarse) { #mapBig footer .tip, #mapTip { display: none; } #mapBig footer .tipT { display: inline; } }
+    @media (max-width: 760px) {
+      #mapBig .panel { --mh: min(calc(100vh - 160px), calc((100vw - 58px) / 0.7198)); padding: 12px 12px 10px; }
+      #mapList { display: none; }
+    }
     #place { position: fixed; left: 50%; top: 15vh; transform: translateX(-50%); z-index: 9; text-align: center; pointer-events: none; opacity: 0; }
     #place.show { animation: place 3.6s ease forwards; }
     @keyframes place { 0% { opacity: 0; filter: blur(8px); transform: translate(-50%, 10px); } 14% { opacity: 1; filter: none; transform: translate(-50%, 0); } 78% { opacity: 1; } 100% { opacity: 0; } }
@@ -262,10 +305,10 @@
     }
     @media (max-height: 640px) and (min-width: 641px) {
       .kseg button { height: 34px; } .kseg button i { display: none; } #atmos .lbl { margin-bottom: 3px; }
-      #minimap { display: none; }
+      #mapBox { width: 108px; } #minimap { width: 108px; height: 150px; } #mapHere span { display: none; }
     }
     @media (max-width: 640px) {
-      #minimap { top: auto; bottom: 236px; left: 12px; transform: none; width: 84px; height: 117px; border-radius: 12px; }
+      #mapBox { top: auto; bottom: 236px; left: 12px; transform: none; width: 84px; } #minimap { width: 84px; height: 117px; border-radius: 12px; } #mapHere, #mapTip { display: none; }
       #place { top: 11vh; }
     }
   </style>
@@ -423,12 +466,30 @@
     <div><b>R</b>record clip (Shift: whole film) · <b style="min-width:0">⇧P</b> 4K</div>
   </div>
   <!-- 散歩 walk mode -->
-  <canvas id="minimap" class="glass ui" aria-label="Map of the city"></canvas>
+  <div id="mapBox" class="ui">
+    <canvas id="minimap" class="glass" role="button" aria-label="Open the map" title="Open the map (Tab)"></canvas>
+    <div id="mapHere" class="glass"></div>
+    <div id="mapTip">Click or <kbd>Tab</kbd> · map</div>
+  </div>
+  <div id="mapBig" aria-hidden="true">
+    <div class="panel glass" role="dialog" aria-label="Map of the city">
+      <header><b>地図</b><span>Map of the city</span><em id="mapCount"></em><button id="mapClose" aria-label="Close the map">✕</button></header>
+      <div class="body"><canvas id="bigmap"></canvas><ol id="mapList"></ol></div>
+      <footer>
+        <span class="lg"><i style="background:#fff;box-shadow:0 0 6px #ff9ac2"></i>you</span>
+        <span class="lg"><i style="background:#ff5a3a"></i>torii</span>
+        <span class="lg"><i style="background:#ffc85a"></i>pray · bell</span>
+        <span class="lg"><i style="background:#7fe3ff;border-radius:2px"></i>vending machine</span>
+        <span class="tip">Click a place you've found to go there · <kbd>Tab</kbd> <kbd>Esc</kbd> close</span>
+        <span class="tip tipT">Tap a place you've found to go there</span>
+      </footer>
+    </div>
+  </div>
   <div id="place" aria-live="polite"><div class="jp"></div><div class="en"></div><div class="n"></div></div>
   <div id="walkPrompt" class="glass ui"></div>
   <div id="walkKeys" class="glass ui">
     <span><kbd>W A S D</kbd> walk</span><span><kbd>Shift</kbd> run</span><span><kbd>Space</kbd> jump</span>
-    <span><kbd>E</kbd> do something</span><span><kbd>Drag</kbd> look around</span><span><kbd>← →</kbd> turn</span><span><kbd>V</kbd> fly again</span>
+    <span><kbd>E</kbd> do something</span><span><kbd>Drag</kbd> look around</span><span><kbd>← →</kbd> turn</span><span><kbd>Tab</kbd> map</span><span><kbd>V</kbd> fly again</span>
   </div>
   <div id="omikuji" class="glass" role="dialog" aria-label="Your fortune">
     <div class="tag">おみくじ · Your fortune</div>

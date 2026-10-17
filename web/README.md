@@ -40,6 +40,7 @@ The link button builds these for you.
 | V | 歩 walk mode: explore the streets as a little voxel person |
 | W A S D / Shift / Space (walking) | walk / run / jump; drag to look around, ← → to turn the camera |
 | E (walking) | the thing to do here: pray at the shrine and draw a fortune, strike the temple bell, buy a drink, let a lantern go |
+| Tab or click the map (walking) | open the big map; click a place you've found to go there · Tab / Esc closes it |
 | C | cinematic mode (Space pause, ← → shots, Esc exit) |
 | T | cycle time of day |
 | M | music: 夕焼けラジオ · Afterglow FM (volume in the now-playing pill) |
@@ -74,7 +75,8 @@ The link button builds these for you.
   - Physics runs against the voxel world and the railway viaduct, stepping up kerbs and stairs. A jump clears a 2-voxel wall, and jumping at a ledge climbs onto it. Footsteps change with the surface and the weather (stone, gravel, grass, wood, puddles, snow).
   - The follow camera never sits inside a building, a tree or the viaduct (voxel meshes have no inner faces, so it would see straight through them). When the view behind the walker is blocked it swings round or rises over its head.
   - Cars stop and queue for you in the road, and honk if you stay. People wait for you to pass.
-  - Nine places to find, with a title card for each and a minimap. On touch screens there is a joystick and buttons.
+  - Nine places to find, with a title card for each. On touch screens there is a joystick and buttons.
+  - 地図, the map: a hill-shaded top-down picture of the old town (one pixel per voxel column, with the railway viaduct drawn in), built in small slices so entering walk mode never stutters. The small map names each area and shows where you are. Clicking it (or Tab) opens a large map that grows out of the small one, with the full names, the torii, where to pray and ring the bell, every vending machine, and a list of the places you've found. Click one to be set down there.
 - **`src/lanterns.js`**: sky lanterns that lift off from the old street, the shrine and the district, then drift out over the skyline on the evening air. They are instanced and reflect in wet streets.
 - **`src/soundscape.js`**: 環境音, the city's own sound, on a channel separate from the music. It starts on your first click or key press; N mutes it, and the setting is remembered. Every layer is synthesized and follows where the camera is:
   - a traffic hum that grows in the district and fades as you climb
