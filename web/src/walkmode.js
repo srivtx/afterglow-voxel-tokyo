@@ -442,8 +442,8 @@ export function createWalkMode(ctx) {
   // the big map: full names, what you can do where, and a way back to places you know
   function drawBig() {
     const cv = $('#bigmap');
-    if (!mapBase || !cv.width) return;
-    const g = cv.getContext('2d'), u = cv.width / cv.clientWidth || 1, s = cv.width / MW;
+    if (!bigOpen || !mapBase || !cv.width || !cv.clientWidth) return;   // closed, or not laid out yet
+    const g = cv.getContext('2d'), u = cv.width / cv.clientWidth, s = cv.width / MW;
     const X = (x) => (x - FINE.x0) * s, Z = (z) => (z - FINE.z0) * s;
     g.imageSmoothingEnabled = false;
     g.clearRect(0, 0, cv.width, cv.height);
