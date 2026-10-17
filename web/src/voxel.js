@@ -313,6 +313,10 @@ export function meshModel(world) {
 // Materials
 // ---------------------------------------------------------------------------
 export const emissiveGroups = { value: new Float32Array(16).fill(1) };
+// Neon soft knee: luminance above `x` is compressed toward `x + y`, keeping the
+// hue. Bright tubes (white, yellow, cyan, green) stop clipping to a white blob
+// and flooding the bloom, so the strokes of a sign stay readable at night.
+export const glowKnee = { value: new THREE.Vector2(1.1, 0.9) };
 
 const FOG_GLSL = /* glsl */ `
   {
@@ -412,11 +416,11 @@ const WET_GLSL = /* glsl */ `
 export function makeVoxelMaterial() {
   const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.88, metalness: 0.0 });
   mat.onBeforeCompile = (sh) => {
-    Object.assign(sh.uniforms, skyU, atmosU, { uGroups: emissiveGroups });
+    Object.assign(sh.uniforms, skyU, atmosU, { uGroups: emissiveGroups, uKnee: glowKnee });
     sh.vertexShader = sh.vertexShader
       .replace('#include <common>', `#include <common>
         attribute vec3 bake; attribute float grp;
-        uniform float uGroups[16];
+        uniform float uGroups[16]; uniform vec2 uKnee;
         uniform vec3 uSak0; uniform vec3 uSak1; uniform float uSakMix;
         uniform vec3 uLeaf0; uniform vec3 uLeaf1; uniform float uLeafMix;
         uniform vec3 uGrass0; uniform float uGrassMix; uniform vec3 uMaple0; uniform float uMapleMix;
@@ -432,6 +436,10 @@ export function makeVoxelMaterial() {
         int gi = int(gq - clsF * 16.0);
         int cls = int(clsF);
         vBakeOut = bk * uGroups[gi];
+        if (gi >= 4 && gi <= 9) {
+          float L = dot(vBakeOut, vec3(0.2126, 0.7152, 0.0722)), over = L - uKnee.x;
+          if (over > 0.0) vBakeOut *= (uKnee.x + over / (1.0 + over / uKnee.y)) / L;
+        }
         vGlow = gi > 1 && gi != 13 ? 1.0 : 0.0;
         vec4 wp4 = vec4(transformed, 1.0);
         mat3 im3 = mat3(1.0);
@@ -455,7 +463,7 @@ export function makeVoxelMaterial() {
         totalEmissiveRadiance += vBakeOut;`)
       .replace('#include <fog_fragment>', WET_GLSL + FOG_GLSL);
   };
-  mat.customProgramCacheKey = () => 'voxel-v2';
+  mat.customProgramCacheKey = () => 'voxel-v3';
   return mat;
 }
 

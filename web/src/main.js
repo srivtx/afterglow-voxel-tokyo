@@ -5,7 +5,8 @@ import { emissiveGroups } from './voxel.js';
 import { buildCity } from './world.js';
 import { createPetals, createPost, createRain, FLAKE_MODES } from './fx.js';
 import { createAtmos, SEASONS, WEATHERS } from './atmos.js';
-import { createHanabi } from './hanabi.js';
+import { createHanabi, SHAPES, SKY_PALETTES, planMessage } from './hanabi.js';
+import { createLanterns } from './lanterns.js';
 import { createLife } from './life.js';
 import { setCustomSign, SIGN_COLORS } from './sign.js';
 import { Director } from './cinematic.js';
@@ -62,7 +63,10 @@ scene.add(rain.mesh);
 const atmos = createAtmos({ renderer, scene, flakes: petals, rain });
 atmos.setSize(window.innerWidth * pixelRatio, window.innerHeight * pixelRatio);
 const hanabi = createHanabi();
+hanabi.setViewer(camera);
 scene.add(hanabi.points);
+const lanterns = createLanterns({ groundAt: (x, z) => (inFine(x, z) ? groundH(Math.floor(x), Math.floor(z)) : 0) });
+scene.add(lanterns.mesh);
 let life = null;
 
 const controls = new OrbitControls(camera, renderer.domElement);
@@ -75,11 +79,26 @@ controls.update();
 
 const music = createMusic();
 const moodFor = (t) => (t < 0.19 ? 'golden' : t < 0.55 ? 'sunset' : t < 0.86 ? 'blue' : 'night');
-// browsers only allow audio after a gesture: resume on the first interaction
-window.addEventListener('pointerdown', () => { if (music.on) music.start(); }, { once: false, passive: true });
+// Browsers only allow audio after a gesture: the first interaction unlocks it
+// and the city sound (環境音) starts, unless it was muted on a previous visit.
+const store = {
+  get(k) { try { return localStorage.getItem('afterglow.' + k); } catch (e) { return null; } },
+  set(k, v) { try { localStorage.setItem('afterglow.' + k, v); } catch (e) { /* private mode */ } },
+};
+if (store.get('amb') === 'off') music.stopAmbience(true);
+let unlocked = false;
+function unlockAudio() {
+  if (unlocked) { if (music.on) music.start(); return; }
+  unlocked = true;
+  music.unlock();
+  syncSoundButtons();
+  if (music.ambOn && !store.get('ambHint')) { store.set('ambHint', '1'); setTimeout(() => toast('環境音 · City sound on — N mutes it, M adds music'), 400); }
+}
+window.addEventListener('pointerdown', unlockAudio, { passive: true });
+window.addEventListener('keydown', unlockAudio);
 
 // ------------------------------------------------------------------- state
-const state = { time: DEFAULT_TIME, mode: 'explore', timelapse: false, ui: true, hanabi: false, ink: false, life: true, sign: null };
+const state = { time: DEFAULT_TIME, mode: 'explore', timelapse: false, ui: true, hanabi: false, ink: false, life: true, sign: null, lanterns: false };
 const tmpCol = new THREE.Color(), flashCol = new THREE.Color();
 let env = sampleTime(state.time);
 let city = null;
@@ -100,6 +119,7 @@ function setTime(t, fromUser = false) {
   petals.uniforms.uTint.value.copy(env.hemiSky).multiplyScalar(0.55).add(env.sunColor.clone().multiplyScalar(0.25 * Math.min(1, env.sunInt)));
   petals.uniforms.uEm.value = 0.08 + env.sakura * 0.4 + (atmos.flakeMode === 'snow' ? 0.12 + env.lamp * 0.08 : 0);
   rain.uniforms.uTint.value.copy(env.hemiSky).multiplyScalar(0.45).add(tmpCol.setRGB(0.32, 0.26, 0.4).multiplyScalar(env.lamp * 0.5));
+  lanterns.setAmbient(tmpCol.copy(env.hemiSky).multiplyScalar(env.hemiInt * 0.5).add(env.sunColor.clone().multiplyScalar(0.3 * Math.min(1, env.sunInt))));
   // label = nearest key
   let best = TIME_KEYS[0];
   for (const k of TIME_KEYS) if (Math.abs(k.t - t) < Math.abs(best.t - t)) best = k;
@@ -149,6 +169,7 @@ const trainCtx = {
   pulse: () => music.pulse(),
   hanabiOn: () => state.hanabi,
   salvo: () => { for (let i = 0; i < 4; i++) setTimeout(() => hanabi.launch(simT), i * 450); },
+  lanternsOn: () => state.lanterns,
 };
 
 // ----------------------------------------------------------------- fly-to
@@ -161,7 +182,7 @@ const VIEWS = {
   shrine: { label: 'Shrine', pos: [TORII.x + 30, 30, TORII.z + 48], target: [TORII.x, 34, TORII.z - 10] },
   pagoda: { label: 'Pagoda', pos: [PAGODA.x + 56, 64, PAGODA.z + 52], target: [PAGODA.x, 66, PAGODA.z] },
   street: { label: 'Street', pos: [2, 28, 104], target: [0, 16, -80] },
-  neon: { label: 'Neon', pos: [2, 6, -66], target: [-1, 13, -190] },
+  neon: { label: 'Neon', pos: [0, 8.5, -66], target: [-1, 14, -190] }, // centre line, clear of bus roofs
   rail: { label: 'Railway', pos: [70, 56, 46], target: [0, 32, -40] },
   tower: { label: 'Tower', pos: [TOWER.x - 70, 40, TOWER.z + 150], target: [TOWER.x, 140, TOWER.z] },
   aerial: { label: 'Aerial', pos: [-300, 320, 420], target: [20, 20, -140] },
@@ -222,11 +243,25 @@ function setMode(m) {
 }
 
 function setMusic(on) {
+  unlocked = true;
   if (on) music.start(); else music.stop(true);
-  document.body.classList.toggle('music', music.on);
-  $('#btnSound').classList.toggle('on', music.on);
+  syncSoundButtons();
   if (music.on) toast(`♪ 夕焼けラジオ — ${music.mood.name}`);
   updateNowPlaying();
+}
+// city sound: wind, rain, trains, fireworks, crowds, insects, bells
+function setAmbience(on) {
+  unlocked = true;
+  if (on) music.startAmbience(); else music.stopAmbience(true);
+  store.set('amb', on ? 'on' : 'off');
+  syncSoundButtons();
+  toast(on ? '環境音 · City sound on' : '環境音 · City sound muted');
+}
+function syncSoundButtons() {
+  document.body.classList.toggle('music', music.on);
+  $('#btnSound').classList.toggle('on', music.on);
+  $('#btnAmb').classList.toggle('on', music.ambOn);
+  $('#btnAmb').classList.toggle('muted', !music.ambOn);
 }
 function updateNowPlaying() {
   const m = music.mood;
@@ -261,6 +296,37 @@ function setInk(on) {
   post.grade.uniforms.uSat.value = on ? 1.32 : 1.24;
   post.grade.uniforms.uGrain.value = on ? 0.022 : 0.035;
 }
+function setLanterns(on, quiet = false) {
+  state.lanterns = on;
+  lanterns.releasing = on;
+  if (on && lanterns.count < 12) lanterns.release(10);
+  $('#tgLantern').classList.toggle('on', on);
+  if (on && !quiet) toast(state.time < 0.5 ? '灯籠 · Sky lanterns — they glow best after dusk' : '灯籠 · Sky lanterns');
+}
+// 祭 Matsuri: a summer festival night in one press
+function festival() {
+  if (state.mode !== 'explore') setMode('explore');
+  setSeason('summer', true);
+  setWeather('clear', true);
+  setTime(0.92);
+  setHanabi(true, true);
+  setLife(true);
+  setLanterns(true, true);
+  lanterns.release(40);
+  if (!music.on) setMusic(true);
+  flyTo(HERO.pos, HERO.target, 2.6);
+  setTimeout(() => hanabi.finale(simT), 5000);
+  toast('祭 · Matsuri — a summer festival night');
+}
+// 空文字 sky-writing
+function skyWrite(text, palette = 'rainbow', repeat = false) {
+  const n = hanabi.write(simT, text, { palette });
+  if (!n) return;
+  if (repeat) { hanabi.setMessage({ text, palette }, simT, 20 + n * 5); if (!state.hanabi) setHanabi(true, true); }
+  else hanabi.setMessage(null);
+  state.sky = repeat ? { text, palette } : null;
+  toast(state.time < 0.45 ? '空文字 · Look up — it reads best after dusk' : n > 1 ? `空文字 · ${n} shells, one after another` : '空文字 · Look up');
+}
 function setLife(on) {
   state.life = on;
   if (life) life.group.visible = on;
@@ -285,7 +351,7 @@ function toggleRecord(film = false) {
   if (rec) { rec.stop(); return; }
   if (!window.MediaRecorder) { toast('Recording is not supported in this browser'); return; }
   const stream = renderer.domElement.captureStream(60);
-  if (music.on) music.stream().getAudioTracks().forEach((t) => stream.addTrack(t));
+  if (music.audible) music.stream().getAudioTracks().forEach((t) => stream.addTrack(t));
   const mime = ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm', 'video/mp4'].find((m) => MediaRecorder.isTypeSupported(m));
   const chunks = [];
   rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 14e6 });
@@ -326,6 +392,8 @@ function shareURL() {
   if (state.ink) q.set('style', 'ink');
   if (state.hanabi && atmos.season !== 'summer') q.set('hanabi', '1');
   if (!state.life) q.set('life', '0');
+  if (state.lanterns) q.set('lanterns', '1');
+  if (state.sky) { q.set('sky', state.sky.text); if (state.sky.palette !== 'rainbow') q.set('skyp', state.sky.palette); }
   if (state.sign) { q.set('sign', state.sign.text); q.set('signc', state.sign.color); if (state.sign.style !== 'neon') q.set('signs', state.sign.style); }
   return `${location.origin}${location.pathname}?${q}`;
 }
@@ -417,6 +485,8 @@ function bindUI() {
   $('#btnSound').addEventListener('click', () => {
     setMusic(!music.on);
   });
+  $('#btnAmb').addEventListener('click', () => setAmbience(!music.ambOn));
+  $('#ambVol').addEventListener('input', (e) => music.setAmbVolume(parseFloat(e.target.value)));
   $('#btnShot').addEventListener('click', screenshot);
   $('#btnFull').addEventListener('click', () => (document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen()));
   $('#btnHide').addEventListener('click', () => toggleUI(false));
@@ -433,6 +503,54 @@ function bindUI() {
   $('#tgHanabi').addEventListener('click', () => setHanabi(!state.hanabi));
   $('#tgInk').addEventListener('click', () => setInk(!state.ink));
   $('#tgLife').addEventListener('click', () => setLife(!state.life));
+  $('#tgLantern').addEventListener('click', () => setLanterns(!state.lanterns));
+  $('#btnMatsuri').addEventListener('click', festival);
+  // sky-writing dialog
+  let skyPal = 'rainbow';
+  const sp = $('#skyPal');
+  const PAL_SW = { rainbow: 'conic-gradient(#ff4f8a, #ffd24a, #62ff9a, #5ad8ff, #b46aff, #ff4f8a)', gold: '#ffc860', sakura: 'linear-gradient(135deg,#ff7ab8,#ffe4f2)', neon: 'linear-gradient(90deg,#ff2fd0 50%,#3ff0ff 50%)', confetti: 'conic-gradient(#ffd24a 0 33%,#ff4f8a 0 66%,#5ad8ff 0)' };
+  Object.keys(SKY_PALETTES).forEach((k) => {
+    const b = document.createElement('button');
+    b.className = 'sw' + (k === skyPal ? ' on' : ''); b.title = k;
+    b.style.setProperty('--c', PAL_SW[k]); b.style.background = PAL_SW[k];
+    b.addEventListener('click', () => { skyPal = k; $$('#skyPal .sw').forEach((x) => x.classList.toggle('on', x === b)); });
+    sp.appendChild(b);
+  });
+  const SHAPE_ICON = { heart: '♥', star: '★', smile: '☺', sakura: '✿', butterfly: '🦋' };
+  SHAPES.forEach((name) => {
+    const b = document.createElement('button');
+    b.textContent = SHAPE_ICON[name]; b.title = name;
+    b.addEventListener('click', () => { hanabi.shape(simT, name, { palette: skyPal }); });
+    $('#skyShapes').appendChild(b);
+  });
+  const closeSky = () => $('#skyDlg').classList.remove('show');
+  const openSky = () => { $('#signDlg').classList.remove('show'); $('#skyDlg').classList.toggle('show'); if ($('#skyDlg').classList.contains('show')) $('#skyText').focus(); };
+  const updateSkyHint = () => {
+    const parts = planMessage($('#skyText').value || '');
+    $('#skyHint').textContent = parts.length > 1 ? `${parts.length} shells: ${parts.join(' · ')}` : '';
+  };
+  $('#skyText').addEventListener('input', updateSkyHint);
+  $('#btnSky').addEventListener('click', openSky);
+  $('#skyLaunch').addEventListener('click', () => { skyWrite($('#skyText').value || '夕焼け', skyPal, $('#skyRepeat').checked); closeSky(); });
+  $('#skyFinale').addEventListener('click', () => { hanabi.finale(simT); closeSky(); toast('スターマイン · Grand finale'); });
+  $('#skyText').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('#skyLaunch').click(); if (e.key === 'Escape') closeSky(); });
+  // tap the sky to launch a shell there (while the fireworks are on)
+  let down = null, tapTimer = 0;
+  renderer.domElement.addEventListener('pointerdown', (e) => { down = { x: e.clientX, y: e.clientY, t: performance.now() }; });
+  renderer.domElement.addEventListener('pointerup', (e) => {
+    if (!down || !state.hanabi || !city || e.button !== 0) return;
+    const moved = Math.hypot(e.clientX - down.x, e.clientY - down.y), held = performance.now() - down.t;
+    down = null;
+    if (moved > 6 || held > 350) return;
+    const ndc = new THREE.Vector2((e.clientX / window.innerWidth) * 2 - 1, -(e.clientY / window.innerHeight) * 2 + 1);
+    const rc = new THREE.Raycaster();
+    rc.setFromCamera(ndc, camera);
+    const dir = rc.ray.direction.clone();
+    if (dir.y < 0.03 || raycastVoxel(camera.position.clone(), dir, 700)) return;
+    clearTimeout(tapTimer);
+    tapTimer = setTimeout(() => hanabi.launchToward(simT, dir), 260); // a double-click cancels it
+  });
+  renderer.domElement.addEventListener('dblclick', () => clearTimeout(tapTimer));
   $('#btnRec').addEventListener('click', (e) => toggleRecord(e.shiftKey));
   $('#recPill').addEventListener('click', () => toggleRecord());
   $('#btnShare').addEventListener('click', share);
@@ -453,7 +571,7 @@ function bindUI() {
   });
   $$('#signStyle button').forEach((b) => b.addEventListener('click', () => { signStyle = b.dataset.v; $$('#signStyle button').forEach((x) => x.classList.toggle('on', x === b)); }));
   const closeSign = () => $('#signDlg').classList.remove('show');
-  $('#btnSign').addEventListener('click', () => { $('#signDlg').classList.toggle('show'); if ($('#signDlg').classList.contains('show')) $('#signText').focus(); });
+  $('#btnSign').addEventListener('click', () => { $('#skyDlg').classList.remove('show'); $('#signDlg').classList.toggle('show'); if ($('#signDlg').classList.contains('show')) $('#signText').focus(); });
   $('#signApply').addEventListener('click', async () => { closeSign(); await applySign({ text: $('#signText').value || '夕焼け TOKYO', color: signColor, style: signStyle }); });
   $('#signRemove').addEventListener('click', () => { closeSign(); applySign(null); });
   $('#signText').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('#signApply').click(); if (e.key === 'Escape') closeSign(); });
@@ -484,6 +602,10 @@ function bindUI() {
     else if (k === 'b') setHanabi(!state.hanabi);
     else if (k === 'i') setInk(!state.ink);
     else if (k === 'l') setLife(!state.life);
+    else if (k === 'k') setLanterns(!state.lanterns);
+    else if (k === 'n') setAmbience(!music.ambOn);
+    else if (k === 'y') { e.preventDefault(); $('#btnSky').click(); }
+    else if (k === 'g') { hanabi.finale(simT); toast('スターマイン · Grand finale'); }
     else if (k === 'z') { const ks = Object.keys(SEASONS); setSeason(ks[(ks.indexOf(atmos.season) + 1) % ks.length]); }
     else if (k === 'x') { const ks = Object.keys(WEATHERS); setWeather(ks[(ks.indexOf(atmos.weather) + 1) % ks.length]); }
     else if (k === 'f') $('#btnFull').click();
@@ -522,7 +644,7 @@ const tmpF = new THREE.Vector3(), tmpR = new THREE.Vector3(), tmpT = new THREE.V
 const bandsBuf = new Float32Array(5);
 const eqBars = $$('#nowplaying .eq i');
 
-let forcedDt = null, adapt = 0;
+let forcedDt = null, adapt = 0, sceneSoundT = 1;
 function loop() {
   const real = clock.getDelta();
   const dt = forcedDt ?? Math.min(real, 0.1);
@@ -551,6 +673,7 @@ function loop() {
   if (fl > 0.001) hemi.color.copy(env.hemiSky).lerp(tmpCol.copy(flashCol).multiplyScalar(1 / fl), Math.min(0.6, fl * 0.5));
   else hemi.color.copy(env.hemiSky);
   if (life && state.life) life.update(dt, t, atmos.st.rainK);
+  lanterns.update(dt, t, env.lamp);
   rain.uniforms.uTime.value = t;
   rain.uniforms.uCam.value.copy(camera.position);
   // eye adaptation: down among the signs the city is far brighter than from the hill
@@ -562,6 +685,20 @@ function loop() {
     const night = THREE.MathUtils.smoothstep(state.time, 0.3, 0.9);
     const target = Math.max(inDistrict * (0.35 + 0.65 * night), inOld * 0.6 * night);
     adapt += (target - adapt) * Math.min(1, dt * 2.5);
+    // where the listener stands, for the city soundscape
+    if (music.ambOn && (sceneSoundT += dt) > 0.12) {
+      sceneSoundT = 0;
+      const street = sat(1 - Math.abs(c.x) / 40, 0, 1) * sat((c.z + 60) / 16, 0, 1) * sat((40 - c.z) / 40, 0, 1);
+      const district = sat((-44 - c.z) / 24, 0, 1) * sat((70 - Math.abs(c.x)) / 25, 0, 1);
+      const dx = PAGODA.x - c.x, dz = PAGODA.z - c.z;
+      camera.getWorldDirection(tmpF); tmpR.crossVectors(tmpF, camera.up).normalize();
+      music.setScene({
+        time: state.time, season: atmos.season, street, district, alt: c.y - gy, life: state.life,
+        rain: atmos.st.rainK, snow: atmos.st.snowK,
+        shrine: sat(1 - (Math.hypot(dx, dz) - 25) / 160, 0, 1),
+        shrinePan: tmpT.set(dx, 0, dz).normalize().dot(tmpR),
+      });
+    }
     renderer.toneMappingExposure = env.exposure * (1 - 0.5 * adapt);
     post.bloom.strength = state.bloomOn === false ? 0 : env.bloom * 0.8 * (1 - 0.6 * adapt);
   }
@@ -606,7 +743,7 @@ function loop() {
   }
 
   // train rumble: nearest train, panned to where it is on screen
-  if (city && music.on) {
+  if (city && music.ambOn) {
     let best = 1e9, pan = 0;
     for (const [tr, dx, z] of [[city.train, 77, 4], [city.train2, -77, -3]]) {
       const w = city.rail.localToWorld(tmpT.set(tr.position.x + dx, 34, z));
@@ -680,6 +817,15 @@ async function boot() {
   if (q.get('style') === 'ink') setInk(true);
   if (q.get('hanabi') === '1') setHanabi(true, true);
   if (q.get('life') === '0') setLife(false);
+  if (q.get('lanterns') === '1') setLanterns(true, true);
+  if (q.has('sky')) {
+    const text = q.get('sky').slice(0, 48), palette = SKY_PALETTES[q.get('skyp')] ? q.get('skyp') : 'rainbow';
+    state.sky = { text, palette };
+    setHanabi(true, true);
+    hanabi.setMessage(state.sky, simT, 9);
+    $('#skyText').value = text;
+  }
+  if (q.has('matsuri')) festival();
   if (q.has('sign')) applySign({ text: q.get('sign'), color: q.get('signc'), style: q.get('signs') }, false);
   if (q.has('cine')) setMode('cinematic');
   if (q.has('t')) setTime(parseFloat(q.get('t')));
@@ -696,8 +842,9 @@ async function boot() {
     return blob.size;
   };
   window.__afterglow = {
-    camera, controls, setTime, setMode, flyTo, city, director, scene, renderer, VIEWS, capture, post, petals, music, atmos, hanabi, life,
-    setSeason, setWeather, setHanabi, setInk, setLife, applySign, shareURL, renderAt, get env() { return env; },
+    camera, controls, setTime, setMode, flyTo, city, director, scene, renderer, VIEWS, capture, post, petals, music, atmos, hanabi, life, lanterns,
+    setSeason, setWeather, setHanabi, setInk, setLife, setLanterns, setAmbience, festival, skyWrite, applySign, shareURL, renderAt,
+    get simT() { return simT; }, get env() { return env; },
     // dev: advance the simulation without rAF (hidden tabs / headless checks)
     step(n = 1, dt = 1 / 30) { forcedDt = dt; for (let i = 0; i < n; i++) loop(); forcedDt = null; },
   };

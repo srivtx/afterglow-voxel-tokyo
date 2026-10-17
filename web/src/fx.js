@@ -257,6 +257,22 @@ export function createPost(renderer, scene, camera) {
   const ink = new InkPass(camera);
   composer.addPass(ink);
   const bloom = new UnrealBloomPass(new THREE.Vector2(size.x / 2, size.y / 2), 0.8, 0.55, 1.0);
+  // Soft-knee threshold: bloom only the light *above* the threshold (on the
+  // brightest channel), not the whole pixel. The stock pass blooms a pixel's
+  // full colour once its luminance passes, so a big sign seen up close floods
+  // its own panel and the lettering drowns; this keeps halos around the tubes.
+  bloom.materialHighPassFilter.fragmentShader = /* glsl */ `
+    uniform sampler2D tDiffuse; uniform float luminosityThreshold;
+    varying vec2 vUv;
+    void main() {
+      vec3 c = min(texture2D(tDiffuse, vUv).rgb, vec3(6e4));
+      float br = max(max(c.r, c.g), c.b);
+      float knee = luminosityThreshold * 0.5;
+      float rq = clamp(br - luminosityThreshold + knee, 0.0, 2.0 * knee);
+      rq = rq * rq / (4.0 * knee + 1e-4);
+      gl_FragColor = vec4(c * max(rq, br - luminosityThreshold) / max(br, 1e-4), 1.0);
+    }`;
+  bloom.materialHighPassFilter.needsUpdate = true;
   composer.addPass(bloom);
   const tiltH = new ShaderPass(TiltShader); tiltH.uniforms.uDir.value.set(1, 0);
   const tiltV = new ShaderPass(TiltShader); tiltV.uniforms.uDir.value.set(0, 1);
