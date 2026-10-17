@@ -129,6 +129,47 @@
     body.noui:not(.cine) #unhide { opacity: 0.25; pointer-events: auto; }
     body.noui #unhide:hover { opacity: 1; }
 
+    /* ---------- atmosphere panel (season · weather · extras) ---------- */
+    :root { --n-pink: #ff3fae; --n-cyan: #3ff0ff; --n-yellow: #ffe13a; --n-purple: #b45cff; --n-green: #57ff8f; --n-orange: #ff8a2a; --n-red: #ff2f4f; --n-white: #fff4e6; }
+    #atmos { position: fixed; right: 20px; top: 50%; transform: translateY(-50%); z-index: 10; padding: 10px 8px; border-radius: 18px; display: flex; flex-direction: column; gap: 10px; }
+    body.cine #atmos { opacity: 0; transform: translate(30px, -50%); pointer-events: none; }
+    #atmos .lbl { display: block; font-size: 9px; letter-spacing: 0.28em; text-transform: uppercase; color: var(--dim); text-align: center; margin-bottom: 5px; padding-left: 0.28em; }
+    .kseg { display: grid; grid-template-columns: repeat(2, 44px); gap: 4px; }
+    .kseg button { height: 46px; padding: 0; white-space: nowrap; border-radius: 12px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; color: var(--dim); background: rgba(0, 0, 0, 0.18); border: 1px solid transparent; transition: all 0.25s; }
+    .kseg button b { font-family: var(--mincho); font-weight: 700; font-size: 18px; line-height: 1; }
+    .kseg button b.two { font-size: 15px; letter-spacing: -0.04em; }
+    .kseg button i { font-style: normal; font-size: 8.5px; letter-spacing: 0.08em; text-transform: uppercase; opacity: 0.8; }
+    .kseg button:hover { color: var(--ink); background: rgba(255, 255, 255, 0.08); }
+    .kseg button.on { color: #1b1030; background: linear-gradient(135deg, #ffd2a0, #ff9ac2); box-shadow: 0 4px 16px rgba(255, 140, 170, 0.35); }
+    #extraSeg button.on { color: var(--ink); background: rgba(255, 179, 90, 0.16); border-color: rgba(255, 179, 90, 0.6); box-shadow: 0 0 14px rgba(255, 150, 90, 0.25) inset; }
+
+    /* ---------- sign dialog ---------- */
+    .dlg { position: fixed; top: 74px; right: 20px; z-index: 12; width: 300px; padding: 16px; border-radius: 18px; opacity: 0; transform: translateY(-8px); pointer-events: none; transition: all 0.3s ease; }
+    .dlg.show { opacity: 1; transform: none; pointer-events: auto; }
+    .dlg h3 { margin: 0 0 4px; font-family: var(--mincho); font-size: 18px; letter-spacing: 0.08em; }
+    .dlg p { margin: 0 0 12px; font-size: 12px; color: var(--dim); line-height: 1.5; }
+    .dlg input[type=text] { width: 100%; padding: 11px 12px; border-radius: 11px; border: 1px solid var(--line); background: rgba(0, 0, 0, 0.3); color: var(--ink); font: 600 16px var(--sans); outline: none; }
+    .dlg input[type=text]:focus { border-color: rgba(255, 160, 200, 0.6); }
+    .swatches { display: flex; gap: 7px; margin: 12px 0; flex-wrap: wrap; }
+    .sw { width: 26px; height: 26px; border-radius: 50%; background: var(--c); box-shadow: 0 0 10px var(--c); border: 2px solid transparent; }
+    .sw.on { border-color: #fff; }
+    .dlg .actions { display: flex; justify-content: space-between; align-items: center; margin-top: 14px; }
+    .btn { padding: 9px 14px; border-radius: 11px; font-size: 13px; color: var(--dim); }
+    .btn:hover { color: var(--ink); background: rgba(255, 255, 255, 0.08); }
+    .btn.primary { color: #1b1030; font-weight: 600; background: linear-gradient(135deg, #ffd2a0, #ff9ac2); }
+    body.cine .dlg { display: none; }
+
+    /* ---------- recording + drop ---------- */
+    #recPill { position: fixed; top: 22px; left: 50%; transform: translateX(-50%); z-index: 21; padding: 8px 14px; border-radius: 12px; font: 600 12px var(--sans); letter-spacing: 0.12em; display: none; align-items: center; gap: 8px; }
+    body.rec #recPill { display: flex; }
+    #recPill::before { content: ''; width: 9px; height: 9px; border-radius: 50%; background: #ff3a4a; box-shadow: 0 0 10px #ff3a4a; animation: blink 1s steps(2) infinite; }
+    @keyframes blink { 50% { opacity: 0.2; } }
+    #btnRec.on { color: #ff6a7a; border-color: rgba(255, 80, 100, 0.7); }
+    #dropHint { position: fixed; inset: 16px; z-index: 30; border: 2px dashed rgba(255, 200, 230, 0.6); border-radius: 26px; display: grid; place-items: center; font-family: var(--mincho); font-size: 26px; letter-spacing: 0.1em; background: rgba(20, 10, 40, 0.45); opacity: 0; pointer-events: none; transition: opacity 0.2s; }
+    body.drop #dropHint { opacity: 1; }
+    .np-btn { width: 26px; height: 26px; border-radius: 8px; display: grid; place-items: center; color: var(--dim); font-size: 13px; }
+    .np-btn:hover { color: var(--ink); background: rgba(255, 255, 255, 0.1); }
+
     @media (max-width: 1100px) {
       #dock { flex-wrap: wrap; justify-content: center; bottom: 12px; gap: 8px; }
       .sep { display: none; }
@@ -151,6 +192,10 @@
       #topright { top: 12px; right: 12px; gap: 4px; } .icon { width: 34px; height: 34px; }
       .toggles { flex-wrap: wrap; justify-content: center; } .time { min-width: 0; width: 100%; }
       #help { display: none; }
+      #atmos { top: 62px; transform: none; right: 12px; padding: 6px; gap: 6px; }
+      .kseg { grid-template-columns: repeat(4, 34px); } .kseg button { height: 34px; } .kseg button i { display: none; } #atmos .lbl { display: none; }
+      body:not(.dock-open) #atmos { display: none; }
+      .dlg { right: 12px; left: 12px; width: auto; top: 56px; }
     }
   </style>
   <script type="importmap">
@@ -187,7 +232,10 @@
 
   <div id="topright" class="ui">
     <button class="icon glass" id="btnSound" title="Music — Afterglow FM (M)"><svg viewBox="0 0 24 24"><path d="M11 5 6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/></svg></button>
-    <button class="icon glass" id="btnShot" title="Screenshot (P)"><svg viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg></button>
+    <button class="icon glass" id="btnSign" title="Hang your own neon sign"><svg viewBox="0 0 24 24"><path d="M4 7h16v9H4z"/><path d="M8 7V4M16 7V4M8 16v4M16 16v4"/><path d="M8 11.5h3M13 11.5h3"/></svg></button>
+    <button class="icon glass" id="btnRec" title="Record a clip (R) · Shift-click records the whole film"><svg viewBox="0 0 24 24"><rect x="3" y="6" width="13" height="12" rx="2"/><path d="m16 10 5-3v10l-5-3"/></svg></button>
+    <button class="icon glass" id="btnShare" title="Copy a link to this exact scene"><svg viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 0 5.66 0l3-3a4 4 0 0 0-5.66-5.66l-1 1"/><path d="M14 10a4 4 0 0 0-5.66 0l-3 3a4 4 0 0 0 5.66 5.66l1-1"/></svg></button>
+    <button class="icon glass" id="btnShot" title="Screenshot (P) · Shift = 4K postcard"><svg viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg></button>
     <button class="icon glass" id="btnFull" title="Fullscreen (F)"><svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
     <button class="icon glass" id="btnHide" title="Hide interface (H)"><svg viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><path d="M4 20 20 4"/></svg></button>
     <button class="icon glass" id="btnHelp" title="Controls"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6V14M12 17.5v.01"/></svg></button>
@@ -198,7 +246,42 @@
     <div class="eq" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
     <div class="np-text"><b>夕焼けラジオ <em>Afterglow FM</em></b><span id="npMood">夕焼け · Sunset · 78 BPM</span></div>
     <input type="range" id="vol" min="0" max="1" step="0.01" value="0.7" aria-label="Music volume" />
+    <button class="np-btn" id="btnTrack" title="Play your own track (or drop an audio file anywhere)">⏏</button>
+    <input type="file" id="trackFile" accept="audio/*" hidden />
   </div>
+
+  <aside id="atmos" class="glass ui">
+    <div><span class="lbl">Season</span>
+      <div class="kseg" id="seasonSeg">
+        <button data-v="spring" class="on" title="Spring — sakura (Z cycles)"><b>春</b><i>Spring</i></button>
+        <button data-v="summer" title="Summer — fireworks & fireflies"><b>夏</b><i>Summer</i></button>
+        <button data-v="autumn" title="Autumn — momiji"><b>秋</b><i>Autumn</i></button>
+        <button data-v="winter" title="Winter — snow on the roofs"><b>冬</b><i>Winter</i></button>
+      </div></div>
+    <div><span class="lbl">Weather</span>
+      <div class="kseg" id="weatherSeg">
+        <button data-v="clear" class="on" title="Clear (X cycles)"><b>晴</b><i>Clear</i></button>
+        <button data-v="rain" title="Rain — wet streets, neon reflections"><b>雨</b><i>Rain</i></button>
+        <button data-v="snow" title="Snowfall"><b>雪</b><i>Snow</i></button>
+      </div></div>
+    <div><span class="lbl">Extras</span>
+      <div class="kseg" id="extraSeg">
+        <button id="tgHanabi" title="Fireworks over the bay (B)"><b class="two">花火</b><i>Hanabi</i></button>
+        <button id="tgInk" title="Anime ink outlines (I)"><b>墨</b><i>Ink</i></button>
+        <button id="tgLife" class="on" title="Cars, people & crows (L)"><b>人</b><i>Life</i></button>
+      </div></div>
+  </aside>
+
+  <div id="signDlg" class="glass dlg" role="dialog" aria-label="Your neon sign">
+    <h3>看板 · Your neon</h3>
+    <p>Hang your own sign on the railway bridge, right over the street. Japanese or English, up to 14 characters.</p>
+    <input type="text" id="signText" maxlength="14" placeholder="夕焼け TOKYO" />
+    <div class="swatches" id="signColors"></div>
+    <div class="seg" id="signStyle"><button data-v="neon" class="on">Neon tubes</button><button data-v="panel">Lightbox</button></div>
+    <div class="actions"><button class="btn" id="signRemove">Remove</button><button class="btn primary" id="signApply">Hang it</button></div>
+  </div>
+  <button id="recPill" class="glass" title="Stop recording">REC <span id="recTime">00:00</span></button>
+  <div id="dropHint">♪ Drop a track — the city will dance to it</div>
 
   <nav id="dock" class="glass ui">
     <div class="seg" id="modeSeg">
@@ -219,7 +302,7 @@
     </div>
     <div class="sep"></div>
     <div class="toggles">
-      <button class="tg on" id="tgPetals">Petals</button>
+      <button class="tg on" id="tgPetals" title="Falling petals / leaves / snow / fireflies">Petals</button>
       <button class="tg on" id="tgBloom">Glow</button>
       <button class="tg" id="tgTilt">Diorama</button>
       <button class="tg" id="tgOrbit">Orbit</button>
@@ -244,7 +327,10 @@
     <div><b>W A S D · Q E</b>fly (Shift = fast)</div>
     <div><b>1 – 8</b>viewpoints</div>
     <div><b>C</b>cinematic · <b style="min-width:0">T</b> time · <b style="min-width:0">H</b> hide UI</div>
-    <div><b>M</b>music — Afterglow FM</div>
+    <div><b>M</b>music — Afterglow FM · drop a track to use yours</div>
+    <div><b>Z · X</b>season · weather</div>
+    <div><b>B · I · L</b>fireworks · ink · street life</div>
+    <div><b>R</b>record clip (Shift: whole film) · <b style="min-width:0">⇧P</b> 4K</div>
   </div>
   <button id="unhide" class="glass" title="Show interface">◐</button>
   <div id="toast" class="glass"></div>

@@ -23,6 +23,16 @@ export const skyU = {
   uCloudSunDir: { value: new THREE.Vector3(0.2, -0.2, -1).normalize() },
 };
 
+// Weather + season uniforms shared by every voxel material (driven by atmos.js).
+export const atmosU = {
+  uWet: { value: 0 }, uRain: { value: 0 }, uSnow: { value: 0 },
+  uRefl: { value: null }, uReflMat: { value: new THREE.Matrix4() }, uReflOn: { value: 0 }, uReflY: { value: 1 },
+  uSak0: { value: new THREE.Color() }, uSak1: { value: new THREE.Color() }, uSakMix: { value: 0 },
+  uLeaf0: { value: new THREE.Color() }, uLeaf1: { value: new THREE.Color() }, uLeafMix: { value: 0 },
+  uGrass0: { value: new THREE.Color() }, uGrassMix: { value: 0 },
+  uMaple0: { value: new THREE.Color() }, uMapleMix: { value: 0 },
+};
+
 // Sky gradient: horizon -> warm band -> violet mid -> deep blue zenith, with the
 // horizon colour swinging from molten orange (toward the sun) to rose-violet
 // (away from it). Reused as the fog colour so distant blocks melt into the sky.

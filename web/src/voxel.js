@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { SKY_GLSL, skyU } from './sky.js';
+import { SKY_GLSL, skyU, atmosU } from './sky.js';
 import { hash3 } from './rng.js';
 
 // ---------------------------------------------------------------------------
@@ -22,7 +22,7 @@ export class Palette {
     const s = [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255];
     this.list.push({
       name, s, l: s.map(toLin),
-      em: o.em || 0, j: o.j ?? 0.06, grp: o.grp ?? 2, ao: o.ao ?? (o.em >= 1 ? 0 : 1),
+      em: o.em || 0, j: o.j ?? 0.06, grp: o.grp ?? 2, ao: o.ao ?? (o.em >= 1 ? 0 : 1), cls: (o.cls || 0) << 4,
     });
     this.map[name] = id;
     return id;
@@ -241,8 +241,8 @@ function meshChunk(world, c) {
             const cm = glowOnly ? 0.3 : jf * ao;
             sCol[vi] = Math.min(255, e.s[0] * cm * 255); sCol[vi + 1] = Math.min(255, e.s[1] * cm * 255); sCol[vi + 2] = Math.min(255, e.s[2] * cm * 255);
             let br, bg, bb;
-            if (e.em) { const q = e.em * jf * (glowOnly ? 1 : ao); br = e.l[0] * q; bg = e.l[1] * q; bb = e.l[2] * q; sGrp[vb + k] = e.grp; }
-            else { const q = jf * ao; br = e.l[0] * lr * q; bg = e.l[1] * lg * q; bb = e.l[2] * lb * q; sGrp[vb + k] = 1; }
+            if (e.em) { const q = e.em * jf * (glowOnly ? 1 : ao); br = e.l[0] * q; bg = e.l[1] * q; bb = e.l[2] * q; sGrp[vb + k] = e.grp | e.cls; }
+            else { const q = jf * ao; br = e.l[0] * lr * q; bg = e.l[1] * lg * q; bb = e.l[2] * lb * q; sGrp[vb + k] = 1 | e.cls; }
             // sqrt encoding keeps precision in the dark range (decode: v*v*16)
             sBake[vi] = Math.sqrt(Math.min(br / 16, 1)) * 255;
             sBake[vi + 1] = Math.sqrt(Math.min(bg / 16, 1)) * 255;
@@ -302,6 +302,13 @@ export async function meshWorld(world, material, group, { shadows = false, recei
   return faces;
 }
 
+// Meshes a small model (must fit inside chunk 0,0,0) into one geometry.
+export function meshModel(world) {
+  const c = world.chunks.get(VoxelWorld.key(0, 0, 0));
+  if (world.chunks.size !== 1 || !c) throw new Error('model must fit in one chunk');
+  return meshChunk(world, c).geo;
+}
+
 // ---------------------------------------------------------------------------
 // Materials
 // ---------------------------------------------------------------------------
@@ -321,35 +328,134 @@ const FOG_GLSL = /* glsl */ `
   }
 `;
 
+// Season recolour (vertex): foliage classes are re-tinted while keeping their
+// baked AO / jitter, so a whole season is just a few uniforms.
+const SEASON_VERT = /* glsl */ `
+  #ifdef USE_COLOR
+  if (cls > 0) {
+    vec3 cell = floor(vWPos * 0.34);
+    float h = fract(sin(dot(cell, vec3(12.9898, 78.233, 37.719))) * 43758.5453);
+    float h2 = fract(h * 13.7 + 0.31);
+    float lum = dot(vColor, vec3(0.2126, 0.7152, 0.0722));
+    vec3 tgt; float mx; float ref;
+    if (cls == 1) { tgt = mix(uSak0, uSak1, h); mx = uSakMix; ref = 0.45; }
+    else if (cls == 2) { tgt = mix(uLeaf0, uLeaf1, h); mx = uLeafMix * step(0.14, h2); ref = 0.15; }
+    else if (cls == 3) { tgt = uGrass0 * (0.8 + 0.4 * h); mx = uGrassMix; ref = 0.16; }
+    else { tgt = uMaple0; mx = uMapleMix; ref = 0.26; }
+    vColor = mix(vColor, tgt * clamp(lum / ref, 0.3, 1.5), mx);
+    if (cls == 1) vBakeOut = mix(vBakeOut, vec3(dot(vBakeOut, vec3(0.333))) * tgt * 2.2, mx);
+  }
+  #endif
+`;
+
+const ATMOS_FRAG_DECL = /* glsl */ `
+  varying vec3 vWN;
+  uniform float uTime; uniform float uWet; uniform float uRain; uniform float uSnow;
+  uniform sampler2D uRefl; uniform mat4 uReflMat; uniform float uReflOn; uniform float uReflY;
+  float ah12(vec2 p) { vec3 p3 = fract(vec3(p.xyx) * .1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
+  float vnoise(vec2 p) {
+    vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+    return mix(mix(ah12(i), ah12(i + vec2(1, 0)), f.x), mix(ah12(i + vec2(0, 1)), ah12(i + vec2(1, 1)), f.x), f.y);
+  }
+  // expanding raindrop rings -> normal offset
+  vec2 ripple(vec2 p, float t) {
+    vec2 c = floor(p); vec2 f = fract(p) - 0.5;
+    float h = ah12(c);
+    float ph = fract(t * 0.85 + h * 7.0);
+    vec2 o = (vec2(ah12(c + 3.7), ah12(c + 9.1)) - 0.5) * 0.3;
+    vec2 d = f - o; float r = length(d);
+    float w = exp(-pow((r - ph * 0.45) * 20.0, 2.0)) * (1.0 - ph) * step(0.25, h);
+    return d / max(r, 1e-3) * w;
+  }
+`;
+
+// snow cover + wet darkening (after the vertex colour is applied)
+const ATMOS_COLOR = /* glsl */ `
+  float upF = smoothstep(0.6, 0.95, vWN.y);
+  float snowM = 0.0, wetM = 0.0, pudM = 0.0;
+  vec2 vox = floor(vWPos.xz + 0.001);
+  if (uSnow > 0.001 && vGlow < 0.5) {
+    float n = vnoise(vox * 0.19) * 0.6 + vnoise(vox * 0.71) * 0.4;
+    snowM = upF * smoothstep(0.0, 0.16, uSnow * 1.3 - (1.0 - n) * 0.6);
+    diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.84, 0.88, 1.0) * (0.9 + 0.1 * n), snowM);
+  }
+  if (uWet > 0.001) {
+    float pd = vnoise(vox * 0.075) * 0.65 + vnoise(vox * 0.26) * 0.35;
+    float puddle = smoothstep(0.42, 0.6, pd);
+    wetM = uWet * (upF * mix(0.55, 1.0, puddle) + (1.0 - upF) * 0.35) * (1.0 - snowM);
+    pudM = uWet * upF * mix(0.4, 1.0, puddle) * (1.0 - vGlow) * (1.0 - snowM);
+    diffuseColor.rgb *= 1.0 - 0.5 * wetM;
+  }
+`;
+
+// mirror-like puddles: planar reflection near street level, sky elsewhere
+const WET_GLSL = /* glsl */ `
+  if (pudM > 0.002) {
+    vec3 V = normalize(vWPos - cameraPosition);
+    vec2 rip = uRain > 0.001 ? ripple(vWPos.xz * 1.3, uTime) * uRain : vec2(0.0);
+    vec3 N = normalize(vec3(rip.x * 0.3, 1.0, rip.y * 0.3));
+    vec3 R = reflect(V, N);
+    float fres = 0.08 + 0.92 * pow(1.0 - max(dot(-V, N), 0.0), 4.0);
+    vec3 refl = fogColor(R) * 0.5 + skyColor(normalize(vec3(R.x, max(R.y, 0.02), R.z))) * 0.2;
+    if (uReflOn > 0.5) {
+      vec4 rp = uReflMat * vec4(vWPos, 1.0);
+      vec2 ruv = rp.xy / rp.w + rip * 0.014;
+      float nearP = exp(-abs(vWPos.y - uReflY) * 0.5);
+      float inside = step(0.0, ruv.x) * step(ruv.x, 1.0) * step(0.0, ruv.y) * step(ruv.y, 1.0);
+      refl = mix(refl, texture2D(uRefl, clamp(ruv, 0.001, 0.999)).rgb, nearP * inside);
+    }
+    gl_FragColor.rgb += vBakeOut * pudM * 0.5;
+    gl_FragColor.rgb = mix(gl_FragColor.rgb, refl, clamp(fres * pudM, 0.0, 0.9));
+  }
+`;
+
 export function makeVoxelMaterial() {
   const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.88, metalness: 0.0 });
   mat.onBeforeCompile = (sh) => {
-    Object.assign(sh.uniforms, skyU, { uGroups: emissiveGroups });
+    Object.assign(sh.uniforms, skyU, atmosU, { uGroups: emissiveGroups });
     sh.vertexShader = sh.vertexShader
       .replace('#include <common>', `#include <common>
         attribute vec3 bake; attribute float grp;
         uniform float uGroups[16];
-        varying vec3 vBakeOut; varying vec3 vWPos; varying float vGlow;`)
+        uniform vec3 uSak0; uniform vec3 uSak1; uniform float uSakMix;
+        uniform vec3 uLeaf0; uniform vec3 uLeaf1; uniform float uLeafMix;
+        uniform vec3 uGrass0; uniform float uGrassMix; uniform vec3 uMaple0; uniform float uMapleMix;
+        varying vec3 vBakeOut; varying vec3 vWPos; varying float vGlow; varying vec3 vWN;`)
       .replace('#include <color_vertex>', `
         #ifdef USE_COLOR
           vColor = pow(color.rgb, vec3(2.2));
         #endif`)
       .replace('#include <fog_vertex>', `#include <fog_vertex>
         vec3 bk = bake * bake * 16.0;
-        int gi = int(grp + 0.5);
+        float gq = floor(grp + 0.5);
+        float clsF = floor(gq / 16.0);
+        int gi = int(gq - clsF * 16.0);
+        int cls = int(clsF);
         vBakeOut = bk * uGroups[gi];
-        vGlow = gi > 1 ? 1.0 : 0.0;
-        vWPos = (modelMatrix * vec4(transformed, 1.0)).xyz;`);
+        vGlow = gi > 1 && gi != 13 ? 1.0 : 0.0;
+        vec4 wp4 = vec4(transformed, 1.0);
+        mat3 im3 = mat3(1.0);
+        #ifdef USE_INSTANCING
+          wp4 = instanceMatrix * wp4; im3 = mat3(instanceMatrix);
+        #endif
+        vWPos = (modelMatrix * wp4).xyz;
+        vWN = normalize(mat3(modelMatrix) * im3 * objectNormal);
+        ${SEASON_VERT}`);
     sh.fragmentShader = sh.fragmentShader
       .replace('#include <common>', `#include <common>
         varying vec3 vBakeOut; varying vec3 vWPos; varying float vGlow;
         uniform float uFogDensity; uniform float uFogHeight;
-        ${SKY_GLSL}`)
+        ${SKY_GLSL}
+        ${ATMOS_FRAG_DECL}`)
+      .replace('#include <color_fragment>', `#include <color_fragment>
+        ${ATMOS_COLOR}`)
+      .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
+        roughnessFactor = mix(roughnessFactor, 0.14, pudM);`)
       .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
         totalEmissiveRadiance += vBakeOut;`)
-      .replace('#include <fog_fragment>', FOG_GLSL);
+      .replace('#include <fog_fragment>', WET_GLSL + FOG_GLSL);
   };
-  mat.customProgramCacheKey = () => 'voxel-v1';
+  mat.customProgramCacheKey = () => 'voxel-v2';
   return mat;
 }
 

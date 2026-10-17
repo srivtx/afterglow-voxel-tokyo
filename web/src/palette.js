@@ -3,6 +3,7 @@ import { Palette } from './voxel.js';
 // Emissive groups (driven per-frame in main.js):
 //  1 baked lamp spill · 2 steady glow · 3 windows · 4-9 neon flicker variants
 // 10 lanterns · 11 Tokyo Tower · 12 aviation blink · 13 sakura glow · 14 train
+// Season classes (cls, packed in the high nibble of grp): 1 sakura · 2 leaves · 3 grass · 4 maple
 export const NEON_COLORS = {
   pink: '#ff3fae', cyan: '#3ff0ff', yellow: '#ffe13a', purple: '#b45cff', green: '#57ff8f',
   orange: '#ff8a2a', red: '#ff2f4f', white: '#fff4e6', blue: '#3f7dff',
@@ -17,12 +18,12 @@ export function makePalette() {
   const A = (n, h, o) => p.add(n, h, o);
 
   // terrain
-  A('grass', '#4c7a3f', { j: 0.12 }); A('grass2', '#5e8c46', { j: 0.12 }); A('grassDark', '#3a5f35', { j: 0.1 });
-  A('moss', '#6d8d4c', { j: 0.12 }); A('dirt', '#6a4b3c', { j: 0.08 });
+  A('grass', '#4c7a3f', { j: 0.12, cls: 3 }); A('grass2', '#5e8c46', { j: 0.12, cls: 3 }); A('grassDark', '#3a5f35', { j: 0.1, cls: 3 });
+  A('moss', '#6d8d4c', { j: 0.12, cls: 3 }); A('dirt', '#6a4b3c', { j: 0.08 });
   A('stone', '#8a869b', { j: 0.1 }); A('stoneDark', '#5f5b72', { j: 0.08 }); A('stoneLight', '#aba6ba', { j: 0.06 });
   A('cobble', '#5d596d', { j: 0.12 }); A('cobble2', '#6e6a7e', { j: 0.1 }); A('gravel', '#bdb6c0', { j: 0.09 });
   A('asphalt', '#3a3849', { j: 0.05 }); A('line', '#d9d4cc', { j: 0.03 }); A('curb', '#7f7b8d', { j: 0.04 });
-  A('sidewalk', '#6c687b', { j: 0.07 }); A('petalGround', '#ec9fc4', { j: 0.12 }); A('water', '#34407a', { j: 0.05 });
+  A('sidewalk', '#6c687b', { j: 0.07 }); A('petalGround', '#ec9fc4', { j: 0.12, cls: 1 }); A('water', '#34407a', { j: 0.05 });
 
   // timber houses
   A('woodDark', '#3a2519', { j: 0.07 }); A('wood', '#5b3a25', { j: 0.08 }); A('woodLight', '#7c5236', { j: 0.08 });
@@ -51,13 +52,13 @@ export function makePalette() {
 
   // nature
   A('trunk', '#4a3329', { j: 0.08 }); A('trunkDark', '#33241e', { j: 0.08 });
-  A('sakura1', '#ffa8d2', { j: 0.06, em: 0.16, grp: 13, ao: 1 }); A('sakura2', '#ff8cc4', { j: 0.06, em: 0.14, grp: 13, ao: 1 }); A('sakura3', '#ffd2ea', { j: 0.05, em: 0.18, grp: 13, ao: 1 });
-  A('sakura4', '#f07ab8', { j: 0.06, em: 0.1, grp: 13, ao: 1 }); A('sakura5', '#ffe6f3', { j: 0.04, em: 0.2, grp: 13, ao: 1 }); A('sakuraDeep', '#d4609e', { j: 0.06, em: 0.06, grp: 13, ao: 1 });
-  A('sakuraGlow', '#ffb6dc', { em: 0.7, grp: 13, j: 0.08 });
-  A('leaf1', '#3f7a3d', { j: 0.1 }); A('leaf2', '#4f8f46', { j: 0.1 }); A('leaf3', '#2f6334', { j: 0.1 });
+  A('sakura1', '#ffa8d2', { j: 0.06, em: 0.16, grp: 13, ao: 1, cls: 1 }); A('sakura2', '#ff8cc4', { j: 0.06, em: 0.14, grp: 13, ao: 1, cls: 1 }); A('sakura3', '#ffd2ea', { j: 0.05, em: 0.18, grp: 13, ao: 1, cls: 1 });
+  A('sakura4', '#f07ab8', { j: 0.06, em: 0.1, grp: 13, ao: 1, cls: 1 }); A('sakura5', '#ffe6f3', { j: 0.04, em: 0.2, grp: 13, ao: 1, cls: 1 }); A('sakuraDeep', '#d4609e', { j: 0.06, em: 0.06, grp: 13, ao: 1, cls: 1 });
+  A('sakuraGlow', '#ffb6dc', { em: 0.7, grp: 13, j: 0.08, cls: 1 });
+  A('leaf1', '#3f7a3d', { j: 0.1, cls: 2 }); A('leaf2', '#4f8f46', { j: 0.1, cls: 2 }); A('leaf3', '#2f6334', { j: 0.1, cls: 2 });
   A('pine1', '#2b5034', { j: 0.08 }); A('pine2', '#36603b', { j: 0.08 });
-  A('maple1', '#dd6a2c', { j: 0.08 }); A('maple2', '#c4472a', { j: 0.08 }); A('maple3', '#ec952f', { j: 0.08 });
-  A('bush', '#3d6b3a', { j: 0.12 });
+  A('maple1', '#dd6a2c', { j: 0.08, cls: 4 }); A('maple2', '#c4472a', { j: 0.08, cls: 4 }); A('maple3', '#ec952f', { j: 0.08, cls: 4 });
+  A('bush', '#3d6b3a', { j: 0.12, cls: 2 });
 
   // city concrete (lavender-greys like the painting)
   const conc = ['#8d87aa', '#7a7599', '#9e98b6', '#6d6889', '#aaa3be', '#5d5979', '#6f7aa4', '#a18b9b', '#8b97b5', '#b3a3b0'];
@@ -94,6 +95,17 @@ export function makePalette() {
   // street furniture
   A('pole', '#8d8998', { j: 0.04 }); A('poleDark', '#5c586a', { j: 0.04 }); A('transformer', '#9c9aa8', { j: 0.04 });
   A('metal', '#3c3a48', { j: 0.03 });
+
+  // street life: cars, people, umbrellas, birds
+  A('carTaxi', '#f0a83a', { j: 0.02 }); A('carWhite', '#e6e4ee', { j: 0.02 }); A('carBlue', '#3a58b0', { j: 0.02 });
+  A('carRed', '#c4303a', { j: 0.02 }); A('carBus', '#3f9a6a', { j: 0.02 }); A('carBlack', '#25232e', { j: 0.02 });
+  A('tire', '#16141c', { j: 0.02 }); A('carGlass', '#3a4570', { em: 0.25, grp: 3, j: 0.05 }); A('taxiSign', '#ffe6a0', { em: 1.6, grp: 3, j: 0 });
+  A('skin', '#f2c9a6', { j: 0.03 }); A('hair', '#2a2026', { j: 0.04 }); A('pants', '#2c2a3c', { j: 0.04 });
+  A('shirt0', '#ece6da', { j: 0.03 }); A('shirt1', '#3a4c92', { j: 0.03 }); A('shirt2', '#bc4450', { j: 0.03 });
+  A('shirt3', '#4a7c5c', { j: 0.03 }); A('shirt4', '#dca444', { j: 0.03 }); A('shirt5', '#6c4a90', { j: 0.03 });
+  A('kimono', '#d8608a', { j: 0.03 }); A('obi', '#f2d24a', { j: 0.02 });
+  A('umbRed', '#d8362c', { j: 0.03 }); A('umbNavy', '#2c3c7c', { j: 0.03 }); A('umbClear', '#dfe6f2', { em: 0.15, grp: 3, j: 0.02 });
+  A('crow', '#18161e', { j: 0.03 });
 
   // clouds
   A('cloud', '#ffffff', { j: 0.05, ao: 0.8 }); A('cloud2', '#e9e4f2', { j: 0.05, ao: 0.8 });

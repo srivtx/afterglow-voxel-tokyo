@@ -42,7 +42,10 @@ export function createMusic() {
   let step = 0, bar = 0, nextTime = 0, phrase = null, phraseBar = -1, melodyPrev = 69;
   const kickTimes = [];
   let lastChime = 0, trainLevel = 0, lastClack = 0;
+  let rainGain, rainHiss, weatherLP, rainLevel = 0, lastDrip = 0, lastThunder = 0, streamDest = null;
+  let fileSrc = null, fileName = '', bassAvg = 0, filePulse = 0;
   const listeners = new Set();
+  let wbBuf = null;
 
   // ------------------------------------------------------------------ graph
   function impulse(sec, decay) {
@@ -60,7 +63,8 @@ export function createMusic() {
     comp.threshold.value = -14; comp.ratio.value = 3; comp.attack.value = 0.01; comp.release.value = 0.25;
     analyser = ctx.createAnalyser(); analyser.fftSize = 256; analyser.smoothingTimeConstant = 0.82;
     master = ctx.createGain(); master.gain.value = vol;
-    master.connect(comp).connect(out); out.connect(analyser); analyser.connect(ctx.destination);
+    weatherLP = ctx.createBiquadFilter(); weatherLP.type = 'lowpass'; weatherLP.frequency.value = 20000; weatherLP.Q.value = 0.4;
+    master.connect(weatherLP).connect(comp).connect(out); out.connect(analyser); analyser.connect(ctx.destination);
 
     // lo-fi bus: soft saturation + wobbling low-pass
     musicBus = ctx.createGain();
@@ -118,6 +122,7 @@ export function createMusic() {
     const wb = ctx.createBuffer(1, ctx.sampleRate * 4, ctx.sampleRate);
     const wd = wb.getChannelData(0); let last = 0;
     for (let i = 0; i < wd.length; i++) { last = (last + 0.02 * (Math.random() * 2 - 1)) / 1.02; wd[i] = last * 3.5; }
+    wbBuf = () => wb;
     windSrc = ctx.createBufferSource(); windSrc.buffer = wb; windSrc.loop = true;
     const wlp = ctx.createBiquadFilter(); wlp.type = 'lowpass'; wlp.frequency.value = 480;
     const wg = ctx.createGain(); wg.gain.value = 0.1;
@@ -125,6 +130,20 @@ export function createMusic() {
     const lfoG = ctx.createGain(); lfoG.gain.value = 0.06;
     lfo.connect(lfoG).connect(wg.gain); lfo.start();
     windSrc.connect(wlp).connect(wg).connect(master); windSrc.start();
+
+    // rain: a hiss bed + a lower patter, gain driven by the weather
+    rainGain = ctx.createGain(); rainGain.gain.value = 0;
+    rainHiss = ctx.createBufferSource(); rainHiss.buffer = noiseBuf; rainHiss.loop = true;
+    const rhp = ctx.createBiquadFilter(); rhp.type = 'highpass'; rhp.frequency.value = 1800;
+    const rlp = ctx.createBiquadFilter(); rlp.type = 'lowpass'; rlp.frequency.value = 9000;
+    const rhg = ctx.createGain(); rhg.gain.value = 0.16;
+    rainHiss.connect(rhp).connect(rlp).connect(rhg).connect(rainGain);
+    const rp = ctx.createBufferSource(); rp.buffer = wbBuf(); rp.loop = true; rp.playbackRate.value = 3.2;
+    const rpb = ctx.createBiquadFilter(); rpb.type = 'bandpass'; rpb.frequency.value = 700; rpb.Q.value = 0.6;
+    const rpg = ctx.createGain(); rpg.gain.value = 0.5;
+    rp.connect(rpb).connect(rpg).connect(rainGain);
+    rainGain.connect(out);
+    rainHiss.start(); rp.start();
 
     // train: rumble bed (gain/pan driven from the scene)
     const rs = ctx.createBufferSource(); rs.buffer = wb; rs.loop = true; rs.playbackRate.value = 0.6;
@@ -273,6 +292,42 @@ export function createMusic() {
     }
   }
 
+  // rain drips on eaves / umbrellas
+  function drip(t, lvl) {
+    const o = ctx.createOscillator(); o.type = 'sine';
+    const f = 1400 + Math.random() * 2400;
+    o.frequency.setValueAtTime(f, t); o.frequency.exponentialRampToValueAtTime(f * 0.55, t + 0.06);
+    const g = ctx.createGain(); g.gain.setValueAtTime(0.03 * lvl, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.08);
+    const pan = ctx.createStereoPanner(); pan.pan.value = Math.random() * 1.6 - 0.8;
+    o.connect(g).connect(pan).connect(out); o.start(t); o.stop(t + 0.1);
+  }
+  function thunder(t, lvl) {
+    const n = ctx.createBufferSource(); n.buffer = wbBuf(); n.playbackRate.value = 0.35 + Math.random() * 0.2;
+    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.setValueAtTime(900, t); lp.frequency.exponentialRampToValueAtTime(120, t + 5);
+    const g = ctx.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.9 * lvl, t + 0.25 + Math.random() * 0.4);
+    g.gain.setTargetAtTime(0.0001, t + 1.2, 1.4);
+    n.connect(lp).connect(g).connect(out); n.start(t); n.stop(t + 7);
+  }
+  // fireworks: low thump + a crackle tail
+  function boom(t, size, crackle) {
+    const o = ctx.createOscillator(); o.frequency.setValueAtTime(70, t); o.frequency.exponentialRampToValueAtTime(28, t + 0.6);
+    const g = ctx.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.75 * size, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + 1.4);
+    o.connect(g).connect(master); o.start(t); o.stop(t + 1.5);
+    const n = ctx.createBufferSource(); n.buffer = wbBuf(); n.playbackRate.value = 0.8;
+    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 500;
+    const ng = ctx.createGain(); ng.gain.setValueAtTime(0.5 * size, t); ng.gain.exponentialRampToValueAtTime(0.0001, t + 1.8);
+    n.connect(lp).connect(ng).connect(master); n.start(t); n.stop(t + 2);
+    const vs = ctx.createGain(); vs.gain.value = 0.5; ng.connect(vs).connect(verbIn);
+    if (crackle) for (let i = 0; i < 26; i++) {
+      const ct = t + 0.9 + Math.random() * 1.6;
+      const c = noise(ct, 0.02);
+      const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 3000 + Math.random() * 3000;
+      const cg = ctx.createGain(); cg.gain.setValueAtTime(0.05 * size, ct); cg.gain.exponentialRampToValueAtTime(0.0001, ct + 0.018);
+      const cp = ctx.createStereoPanner(); cp.pan.value = Math.random() * 1.2 - 0.6;
+      c.connect(hp).connect(cg).connect(cp).connect(master);
+    }
+  }
+
   // ------------------------------------------------------------ composer
   function section() {
     if (bar < 4) return 'intro';
@@ -340,6 +395,11 @@ export function createMusic() {
   function scheduler() {
     if (!running) return;
     const ahead = document.hidden ? 1.5 : 0.25;
+    if (rainLevel > 0.05) {
+      if (ctx.currentTime - lastDrip > 0.12 && Math.random() < rainLevel * 0.35) { drip(ctx.currentTime + 0.05 + Math.random() * 0.1, rainLevel); lastDrip = ctx.currentTime; }
+      if (rainLevel > 0.6 && ctx.currentTime - lastThunder > 28 && Math.random() < 0.004) { thunder(ctx.currentTime + 0.1, rainLevel); lastThunder = ctx.currentTime; }
+    }
+    if (fileSrc) { nextTime = ctx.currentTime + 0.05; return; }
     while (nextTime < ctx.currentTime + ahead) {
       const sixteenth = 60 / mood.bpm / 4;
       const swing = step % 2 === 1 ? sixteenth * mood.swing : 0;
@@ -359,7 +419,8 @@ export function createMusic() {
   return {
     get on() { return running; },
     get userOff() { return userOff; },
-    get mood() { return pendingMood || mood; },
+    get mood() { return fileSrc ? { name: fileName, jp: '持ち込み', bpm: '—' } : pendingMood || mood; },
+    get fileMode() { return !!fileSrc; },
     start() {
       if (!ctx) init();
       ctx.resume();
@@ -368,6 +429,7 @@ export function createMusic() {
       out.gain.cancelScheduledValues(ctx.currentTime);
       out.gain.setValueAtTime(out.gain.value, ctx.currentTime);
       out.gain.linearRampToValueAtTime(1, ctx.currentTime + 2.5);
+      rainGain.gain.setTargetAtTime(rainLevel * 0.55, ctx.currentTime, 0.6);
       bar = 0; step = 0; phrase = null;
       nextTime = ctx.currentTime + 0.1;
       timer = setInterval(scheduler, 25);
@@ -377,6 +439,7 @@ export function createMusic() {
       if (byUser) userOff = true;
       if (!running) return;
       running = false;
+      if (fileSrc) { const f = fileSrc; fileSrc = null; try { f.stop(ctx.currentTime + 1.3); } catch (e) { /* already stopped */ } }
       clearInterval(timer);
       out.gain.cancelScheduledValues(ctx.currentTime);
       out.gain.setValueAtTime(out.gain.value, ctx.currentTime);
@@ -401,12 +464,59 @@ export function createMusic() {
     // 0..1 envelope that peaks on each kick (for visuals)
     pulse() {
       if (!running || !ctx) return 0;
+      if (fileSrc) {
+        // dropped track: onset detector on the low end
+        const d = new Uint8Array(analyser.frequencyBinCount);
+        analyser.getByteFrequencyData(d);
+        const e = (d[1] + d[2] + d[3]) / 765;
+        bassAvg += (e - bassAvg) * 0.05;
+        filePulse = Math.max(filePulse * 0.86, Math.min(1, Math.max(0, (e - bassAvg * 1.08) * 6)));
+        return filePulse;
+      }
       const now = ctx.currentTime;
       let p = 0;
       for (const k of kickTimes) if (k <= now) p = Math.max(p, Math.exp(-(now - k) * 7));
       return p;
     },
     onBeat(fn) { listeners.add(fn); return () => listeners.delete(fn); },
+    // seconds until the next bar line (for beat-synced cuts); null when silent
+    timeToNextBar() {
+      if (!running || !ctx || fileSrc) return null;
+      const sixteenth = 60 / mood.bpm / 4;
+      return nextTime + ((16 - step) % 16) * sixteenth - ctx.currentTime;
+    },
+    get barLength() { return (60 / mood.bpm) * 4; },
+    // weather ambience: rain level 0..1, snow muffles the mix
+    setWeather(rain, snow) {
+      rainLevel = rain;
+      if (!ctx) return;
+      rainGain.gain.setTargetAtTime(running ? rain * 0.55 : 0, ctx.currentTime, 0.6);
+      weatherLP.frequency.setTargetAtTime(20000 - snow * 15500, ctx.currentTime, 0.8);
+    },
+    // a firework heard `delay` seconds after it bursts
+    boom(delay, size = 1, crackle = false) {
+      if (!running || !ctx) return;
+      boom(ctx.currentTime + delay, size, crackle);
+    },
+    // audio for clip recording
+    stream() {
+      if (!ctx) init();
+      if (!streamDest) { streamDest = ctx.createMediaStreamDestination(); analyser.connect(streamDest); }
+      return streamDest.stream;
+    },
+    // drop in your own track: the city reacts to it instead of Afterglow FM
+    async playFile(file) {
+      if (!ctx) init();
+      const buf = await ctx.decodeAudioData(await file.arrayBuffer());
+      if (fileSrc) { try { fileSrc.stop(); } catch (e) { /* noop */ } }
+      if (!running) this.start();
+      const src = ctx.createBufferSource(); src.buffer = buf; src.loop = true;
+      const g = ctx.createGain(); g.gain.value = 0.9;
+      src.connect(g).connect(master);
+      src.start(ctx.currentTime + 0.1);
+      fileSrc = src; fileName = file.name.replace(/\.[^.]+$/, '').slice(0, 40);
+      bassAvg = 0; filePulse = 0;
+    },
     setTrain(level, pan) {
       trainLevel = level;
       if (!ctx) return;
