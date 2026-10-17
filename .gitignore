@@ -1,0 +1,9 @@
+.DS_Store
+# earlier Blender attempt: large binaries and diagnostic renders
+*.blend
+*.blend1
+renders/*
+!renders/afterglow_vs_reference.png
+web/public/assets/*.glb
+node_modules/
+__pycache__/

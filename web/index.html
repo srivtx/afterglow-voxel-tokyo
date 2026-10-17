@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Afterglow — Voxel Tokyo</title>
+  <meta name="description" content="An interactive voxel diorama of Tokyo at sunset: pagoda, shrine lanterns, cherry blossoms, neon and Tokyo Tower." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@500;700&family=Space+Grotesk:wght@400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --ink: #f6eefc; --dim: rgba(246, 238, 252, 0.62); --glass: rgba(22, 16, 44, 0.46); --line: rgba(255, 220, 240, 0.16);
+      --accent: #ff8fb8; --accent2: #ffb35a; --sans: 'Space Grotesk', system-ui, sans-serif; --mincho: 'Shippori Mincho', 'Hiragino Mincho ProN', serif;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #120c24; color: var(--ink); font-family: var(--sans); }
+    #stage { position: fixed; inset: 0; }
+    #stage canvas { display: block; width: 100%; height: 100%; cursor: grab; }
+    #stage canvas:active { cursor: grabbing; }
+    button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+
+    /* ---------- loader ---------- */
+    #loader {
+      position: fixed; inset: 0; z-index: 50; display: grid; place-items: center;
+      background: radial-gradient(120% 90% at 60% 110%, #ff9a5a 0%, #d0629e 28%, #5a3aa8 58%, #1a1550 82%, #0c0a22 100%);
+      transition: opacity 1.4s ease, visibility 1.4s;
+    }
+    body.ready #loader { opacity: 0; visibility: hidden; }
+    #loader .inner { text-align: center; width: min(440px, 80vw); }
+    #loader .kanji { font-family: var(--mincho); font-size: clamp(56px, 10vw, 104px); letter-spacing: 0.12em; text-shadow: 0 0 40px rgba(255, 170, 120, 0.6); }
+    #loader h1 { font-weight: 500; letter-spacing: 0.55em; font-size: 14px; margin: 6px 0 34px; opacity: 0.85; padding-left: 0.55em; }
+    #loader .bar { height: 2px; background: rgba(255, 255, 255, 0.18); overflow: hidden; border-radius: 2px; }
+    #loader .bar i { display: block; height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent2)); transform-origin: left; transform: scaleX(0); transition: transform 0.3s ease; }
+    #loader .stage { margin-top: 14px; font-size: 12px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--dim); min-height: 1em; }
+
+    /* ---------- chrome ---------- */
+    .glass { background: var(--glass); backdrop-filter: blur(14px) saturate(1.3); -webkit-backdrop-filter: blur(14px) saturate(1.3); border: 1px solid var(--line); }
+    .ui { transition: opacity 0.6s ease, transform 0.6s ease; }
+    body.noui .ui, body:not(.ready) .ui { opacity: 0; pointer-events: none; }
+    #brand { position: fixed; top: 22px; left: 26px; display: flex; gap: 14px; align-items: center; z-index: 10; pointer-events: none; }
+    #brand .kanji { font-family: var(--mincho); font-size: 34px; line-height: 1; writing-mode: vertical-rl; letter-spacing: 0.1em; text-shadow: 0 2px 18px rgba(255, 140, 160, 0.55); }
+    #brand h1 { margin: 0; font-size: 15px; letter-spacing: 0.42em; font-weight: 600; }
+    #brand p { margin: 4px 0 0; font-size: 12px; color: var(--dim); letter-spacing: 0.06em; }
+    #topright { position: fixed; top: 20px; right: 20px; display: flex; gap: 8px; z-index: 10; }
+    .icon { width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; transition: background 0.2s, border-color 0.2s; }
+    .icon:hover { background: rgba(255, 255, 255, 0.12); }
+    .icon.on { border-color: rgba(255, 179, 90, 0.7); box-shadow: 0 0 18px rgba(255, 150, 90, 0.35) inset; }
+    .icon svg { width: 18px; height: 18px; stroke: currentColor; fill: none; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+
+    #dock {
+      position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%); z-index: 10;
+      display: flex; gap: 14px; align-items: center; padding: 10px; border-radius: 20px; max-width: calc(100vw - 32px);
+    }
+    body.cine #dock { opacity: 0; transform: translate(-50%, 30px); pointer-events: none; }
+    .seg { display: flex; background: rgba(0, 0, 0, 0.25); border-radius: 13px; padding: 3px; }
+    .seg button { padding: 9px 14px; border-radius: 10px; font-size: 13px; font-weight: 500; letter-spacing: 0.03em; color: var(--dim); white-space: nowrap; transition: all 0.25s; }
+    .seg button.on { color: #1b1030; background: linear-gradient(135deg, #ffd2a0, #ff9ac2); box-shadow: 0 4px 18px rgba(255, 140, 170, 0.35); }
+    #views { display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; }
+    #views::-webkit-scrollbar { display: none; }
+    .chip { padding: 8px 11px; border-radius: 10px; font-size: 12.5px; color: var(--dim); white-space: nowrap; transition: all 0.2s; }
+    .chip span { font-size: 10px; opacity: 0.5; margin-right: 6px; }
+    .chip:hover { color: var(--ink); background: rgba(255, 255, 255, 0.09); }
+    .sep { width: 1px; align-self: stretch; background: var(--line); }
+    .time { display: flex; flex-direction: column; gap: 4px; min-width: 190px; }
+    .time .row { display: flex; justify-content: space-between; font-size: 11px; color: var(--dim); letter-spacing: 0.08em; text-transform: uppercase; }
+    .time .row b { color: var(--ink); font-weight: 600; }
+    input[type=range] { -webkit-appearance: none; appearance: none; width: 100%; height: 18px; background: transparent; margin: 0; }
+    input[type=range]::-webkit-slider-runnable-track { height: 4px; border-radius: 4px; background: linear-gradient(90deg, #ffd27a, #ff8a5a 38%, #8a5ad0 70%, #141a48); }
+    input[type=range]::-moz-range-track { height: 4px; border-radius: 4px; background: linear-gradient(90deg, #ffd27a, #ff8a5a 38%, #8a5ad0 70%, #141a48); }
+    input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 16px; height: 16px; margin-top: -6px; border-radius: 50%; background: #fff; box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.18), 0 0 14px rgba(255, 180, 120, 0.8); }
+    input[type=range]::-moz-range-thumb { width: 16px; height: 16px; border: 0; border-radius: 50%; background: #fff; }
+    .ticks { display: flex; justify-content: space-between; }
+    .tick { font-size: 10px; color: var(--dim); padding: 0; }
+    .tick:hover { color: var(--ink); }
+    .toggles { display: flex; gap: 4px; }
+    .tg { padding: 8px 10px; border-radius: 10px; font-size: 12px; color: var(--dim); white-space: nowrap; border: 1px solid transparent; transition: all 0.2s; }
+    .tg::before { content: ''; display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 7px; background: rgba(255, 255, 255, 0.25); vertical-align: 1px; transition: all 0.2s; }
+    .tg.on { color: var(--ink); }
+    .tg.on::before { background: var(--accent2); box-shadow: 0 0 8px var(--accent2); }
+    .tg:hover { background: rgba(255, 255, 255, 0.08); }
+
+    /* ---------- cinematic ---------- */
+    #fade { position: fixed; inset: 0; background: #07040f; opacity: 0; pointer-events: none; z-index: 5; }
+    .lb { position: fixed; left: 0; right: 0; height: 0; background: #000; z-index: 6; transition: height 1.1s cubic-bezier(0.7, 0, 0.2, 1); }
+    .lb.top { top: 0; } .lb.bottom { bottom: 0; }
+    body.cine .lb { height: max(0px, calc((100vh - 100vw / 2.39) / 2)); }
+    #caption { position: fixed; left: 6vw; bottom: calc(max(0px, (100vh - 100vw / 2.39) / 2) + 5vh); z-index: 7; opacity: 0; pointer-events: none; }
+    body.cine #caption.show { animation: cap 1s ease forwards 0.5s; }
+    @keyframes cap { from { opacity: 0; transform: translateY(14px); filter: blur(6px); } to { opacity: 1; transform: none; filter: none; } }
+    #caption .idx { font-size: 11px; letter-spacing: 0.4em; color: var(--dim); }
+    #caption .jp { font-family: var(--mincho); font-size: clamp(30px, 4.4vw, 58px); letter-spacing: 0.14em; margin: 4px 0 2px; text-shadow: 0 4px 30px rgba(0, 0, 0, 0.5); }
+    #caption .en { font-size: 13px; letter-spacing: 0.32em; text-transform: uppercase; color: rgba(255, 230, 240, 0.8); }
+    #cineprogress { position: fixed; left: 0; right: 0; bottom: max(0px, calc((100vh - 100vw / 2.39) / 2)); height: 2px; z-index: 7; opacity: 0; transition: opacity 0.6s; }
+    body.cine #cineprogress { opacity: 1; }
+    #cineprogress i { display: block; height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent2)); transform-origin: left; transform: scaleX(0); }
+    #cinectl { position: fixed; right: 26px; bottom: calc(max(0px, (100vh - 100vw / 2.39) / 2) + 22px); z-index: 8; display: flex; gap: 6px; padding: 6px; border-radius: 14px; opacity: 0; pointer-events: none; transition: opacity 0.5s; }
+    body.cine #cinectl { opacity: 0.35; pointer-events: auto; }
+    body.cine #cinectl:hover { opacity: 1; }
+    #cinectl button { padding: 8px 12px; border-radius: 9px; font-size: 12px; letter-spacing: 0.05em; }
+    #cinectl button:hover { background: rgba(255, 255, 255, 0.12); }
+    body.cine #brand, body.cine #topright { opacity: 0; pointer-events: none; }
+
+    /* ---------- now playing ---------- */
+    #nowplaying { position: fixed; top: 150px; left: 26px; z-index: 10; display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-radius: 14px;
+      opacity: 0; transform: translateY(-6px); pointer-events: none; transition: opacity 0.6s ease, transform 0.6s ease; }
+    body.music:not(.noui):not(.cine).ready #nowplaying { opacity: 1; transform: none; pointer-events: auto; }
+    #nowplaying .eq { display: flex; align-items: flex-end; gap: 3px; height: 22px; }
+    #nowplaying .eq i { width: 3px; height: 100%; border-radius: 2px; background: linear-gradient(0deg, var(--accent), var(--accent2)); transform-origin: bottom; transform: scaleY(0.15); }
+    .np-text { display: flex; flex-direction: column; line-height: 1.3; }
+    .np-text b { font-family: var(--mincho); font-weight: 700; font-size: 14px; letter-spacing: 0.06em; }
+    .np-text em { font-family: var(--sans); font-style: normal; font-weight: 500; font-size: 10px; letter-spacing: 0.22em; text-transform: uppercase; color: var(--dim); margin-left: 6px; }
+    .np-text span { font-size: 11px; color: var(--dim); letter-spacing: 0.05em; }
+    #vol { width: 78px; }
+    #vol::-webkit-slider-runnable-track { background: rgba(255, 255, 255, 0.22); }
+    #vol::-moz-range-track { background: rgba(255, 255, 255, 0.22); }
+    #vol::-webkit-slider-thumb { width: 12px; height: 12px; margin-top: -4px; }
+
+    /* ---------- misc ---------- */
+    #help { position: fixed; left: 26px; bottom: 100px; z-index: 9; padding: 14px 16px; border-radius: 14px; font-size: 12px; line-height: 1.9; color: var(--dim); opacity: 0; transform: translateY(8px); pointer-events: none; transition: all 0.5s ease; }
+    #help.show { opacity: 1; transform: none; }
+    #help b { color: var(--ink); font-weight: 500; display: inline-block; min-width: 92px; }
+    body.cine #help, body.noui #help { opacity: 0; }
+    #toast { position: fixed; top: 24px; left: 50%; transform: translate(-50%, -10px); z-index: 20; padding: 9px 16px; border-radius: 12px; font-size: 12.5px; opacity: 0; transition: all 0.35s; pointer-events: none; }
+    #toast.show { opacity: 1; transform: translate(-50%, 0); }
+    #stats { position: fixed; top: 74px; right: 20px; z-index: 9; font: 11px ui-monospace, Menlo, monospace; color: var(--dim); padding: 6px 10px; border-radius: 8px; display: none; }
+    #stats.show { display: block; }
+    #unhide { position: fixed; right: 18px; bottom: 18px; z-index: 11; width: 34px; height: 34px; border-radius: 10px; opacity: 0; pointer-events: none; transition: opacity 0.3s; }
+    body.noui:not(.cine) #unhide { opacity: 0.25; pointer-events: auto; }
+    body.noui #unhide:hover { opacity: 1; }
+
+    @media (max-width: 1100px) {
+      #dock { flex-wrap: wrap; justify-content: center; bottom: 12px; gap: 8px; }
+      .sep { display: none; }
+      #views { max-width: 100%; }
+    }
+    .more { display: none; width: 38px; height: 38px; border-radius: 11px; font-size: 18px; color: var(--dim); }
+    .more:hover { color: var(--ink); background: rgba(255, 255, 255, 0.08); }
+    @media (max-width: 640px), (max-height: 520px) {
+      .more { display: grid; place-items: center; }
+      #dock { max-height: calc(100vh - 90px); overflow-y: auto; }
+      body:not(.dock-open) #dock { flex-wrap: nowrap; padding: 6px; gap: 6px; }
+      body:not(.dock-open) #dock #views, body:not(.dock-open) #dock .time, body:not(.dock-open) #dock .toggles, body:not(.dock-open) #dock .sep { display: none; }
+      #help { display: none; }
+      #brand h1 { font-size: 12px; } #brand p { display: none; }
+      #nowplaying { top: auto; bottom: 70px; left: 50%; transform: translateX(-50%); padding: 6px 10px; } #vol { display: none; }
+      body.music:not(.noui):not(.cine).ready #nowplaying { transform: translateX(-50%); }
+    }
+    @media (max-width: 640px) {
+      #brand { top: 14px; left: 16px; } #brand .kanji { font-size: 26px; } #brand p { display: none; }
+      #topright { top: 12px; right: 12px; gap: 4px; } .icon { width: 34px; height: 34px; }
+      .toggles { flex-wrap: wrap; justify-content: center; } .time { min-width: 0; width: 100%; }
+      #help { display: none; }
+    }
+  </style>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <div id="stage"></div>
+
+  <div id="loader">
+    <div class="inner">
+      <div class="kanji">夕焼け</div>
+      <h1>AFTERGLOW</h1>
+      <div class="bar"><i></i></div>
+      <div class="stage">Preparing the evening</div>
+    </div>
+  </div>
+
+  <div id="fade"></div>
+  <div class="lb top"></div><div class="lb bottom"></div>
+
+  <header id="brand" class="ui">
+    <div class="kanji">夕焼け</div>
+    <div>
+      <h1>AFTERGLOW</h1>
+      <p>Tokyo at dusk · a voxel diorama</p>
+    </div>
+  </header>
+
+  <div id="topright" class="ui">
+    <button class="icon glass" id="btnSound" title="Music — Afterglow FM (M)"><svg viewBox="0 0 24 24"><path d="M11 5 6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/></svg></button>
+    <button class="icon glass" id="btnShot" title="Screenshot (P)"><svg viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg></button>
+    <button class="icon glass" id="btnFull" title="Fullscreen (F)"><svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
+    <button class="icon glass" id="btnHide" title="Hide interface (H)"><svg viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><path d="M4 20 20 4"/></svg></button>
+    <button class="icon glass" id="btnHelp" title="Controls"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6V14M12 17.5v.01"/></svg></button>
+  </div>
+  <div id="stats" class="glass"></div>
+
+  <div id="nowplaying" class="glass ui">
+    <div class="eq" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+    <div class="np-text"><b>夕焼けラジオ <em>Afterglow FM</em></b><span id="npMood">夕焼け · Sunset · 78 BPM</span></div>
+    <input type="range" id="vol" min="0" max="1" step="0.01" value="0.7" aria-label="Music volume" />
+  </div>
+
+  <nav id="dock" class="glass ui">
+    <div class="seg" id="modeSeg">
+      <button data-mode="explore" class="on">Explore</button>
+      <button data-mode="cinematic">▶ Cinematic</button>
+    </div>
+    <button class="more" id="dockMore" title="More controls" aria-label="More controls">⋯</button>
+    <div class="sep"></div>
+    <div id="views"></div>
+    <div class="sep"></div>
+    <div class="time">
+      <div class="row"><span>Time</span><b id="timeLabel">Sunset</b></div>
+      <input id="time" type="range" min="0" max="1" step="0.001" value="0.38" aria-label="Time of day" />
+      <div class="ticks">
+        <button class="tick" data-t="0">Golden</button><button class="tick" data-t="0.38">Sunset</button>
+        <button class="tick" data-t="0.7">Blue hour</button><button class="tick" data-t="1">Night</button>
+      </div>
+    </div>
+    <div class="sep"></div>
+    <div class="toggles">
+      <button class="tg on" id="tgPetals">Petals</button>
+      <button class="tg on" id="tgBloom">Glow</button>
+      <button class="tg" id="tgTilt">Diorama</button>
+      <button class="tg" id="tgOrbit">Orbit</button>
+      <button class="tg" id="tgTimelapse">Time-lapse</button>
+    </div>
+  </nav>
+
+  <div id="caption"><div class="idx"></div><div class="jp"></div><div class="en"></div></div>
+  <div id="cineprogress"><i></i></div>
+  <div id="cinectl" class="glass">
+    <button id="cinePrev" title="Previous shot (←)">⟨</button>
+    <button id="cinePause" title="Pause (Space)">❚❚</button>
+    <button id="cineNext" title="Next shot (→)">⟩</button>
+    <button id="cineExit" title="Exit (Esc)">Exit</button>
+  </div>
+
+  <div id="help" class="glass">
+    <div><b>Drag</b>orbit around</div>
+    <div><b>Right-drag</b>pan · or two fingers</div>
+    <div><b>Scroll</b>zoom</div>
+    <div><b>Double-click</b>focus on a spot</div>
+    <div><b>W A S D · Q E</b>fly (Shift = fast)</div>
+    <div><b>1 – 8</b>viewpoints</div>
+    <div><b>C</b>cinematic · <b style="min-width:0">T</b> time · <b style="min-width:0">H</b> hide UI</div>
+    <div><b>M</b>music — Afterglow FM</div>
+  </div>
+  <button id="unhide" class="glass" title="Show interface">◐</button>
+  <div id="toast" class="glass"></div>
+
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>
