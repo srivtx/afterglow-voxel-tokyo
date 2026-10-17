@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { createWalker } from './walker.js';
-import { FINE, PAGODA, TORII, SHRINE, STAIRS, MAIN_HALF, DISTRICT_Z, SLOPE, trackDist, groundH, inFine } from './build/layout.js';
+import { FINE, PAGODA, TORII, SHRINE, STAIRS, MAIN_HALF, DISTRICT_Z, SLOPE, TOWER, TRACK, trackDist, groundH, inFine } from './build/layout.js';
 
 // ---------------------------------------------------------------------------
 // 散歩 Walk mode: input (keys, touch stick), the follow camera, the places
@@ -12,17 +12,21 @@ const $ = (s) => document.querySelector(s);
 const UP = new THREE.Vector3(0, 1, 0);
 const SPAWN = { x: 2.5, z: 128, yaw: Math.PI };       // the old street, facing downhill
 const OFFERING = { x: -76, y: 17, z: 113 };            // the offering box in front of the shrine hall
+const BELL = { x: PAGODA.x + 15, z: PAGODA.z + 12 };   // where the map shows the bell (any spot on the hill top rings it)
 
+// `at`: where the name sits on the map. `go`: where you're set down when you
+// travel there from the big map (x, z, facing). `s`: a shorter name for the small
+// map, where there's less room. `hint`: shown until it's found.
 export const PLACES = {
-  sando: { jp: '参道', en: 'The shrine approach' },
-  hall: { jp: '拝殿', en: 'The shrine hall' },
-  pagoda: { jp: '五重塔', en: 'Pagoda hill' },
-  street: { jp: '商店街', en: 'The old shopping street' },
-  slope: { jp: '夕焼け坂', en: 'Sunset slope' },
-  tracks: { jp: '高架下', en: 'Under the tracks' },
-  district: { jp: '繁華街', en: 'The neon district' },
-  lanes: { jp: '下町', en: 'Old town lanes' },
-  roofs: { jp: '屋根の上', en: 'On the rooftops' },
+  sando: { jp: '参道', en: 'The shrine approach', at: [-62, 60], go: [-62, 64, 0], hint: 'Through the red torii' },
+  hall: { jp: '拝殿', en: 'The shrine hall', at: [-80, 124], go: [-66, 113, -Math.PI / 2], hint: 'At the end of the approach' },
+  pagoda: { jp: '五重塔', en: 'Pagoda hill', at: [-62, -12], go: [-62, 8, Math.PI], s: ['塔', -62, -12], hint: 'Up the stone stairs' },
+  street: { jp: '商店街', en: 'The old shopping street', at: [0, 150], go: [2.5, 128, Math.PI], hint: 'Where the walk begins' },
+  slope: { jp: '夕焼け坂', en: 'Sunset slope', at: [0, -18], go: [2.5, 4, Math.PI], s: ['坂', 18, -14], hint: 'Downhill from the old street' },
+  tracks: { jp: '高架下', en: 'Under the tracks', at: [64, -4], go: [12.5, -35, -Math.PI / 2], s: ['高架', 100, 14], hint: 'Beneath the railway' },
+  district: { jp: '繁華街', en: 'The neon district', at: [0, -150], go: [0, -110, Math.PI], hint: 'Past the railway, into the lights' },
+  lanes: { jp: '下町', en: 'Old town lanes', at: [70, 90], go: [40, 100, Math.PI / 2], hint: 'The side streets off the old street' },
+  roofs: { jp: '屋根の上', en: 'On the rooftops', hint: 'Somewhere up high' },
 };
 const N_PLACES = Object.keys(PLACES).length;
 function placeAt(x, y, z) {
@@ -73,6 +77,7 @@ export function createWalkMode(ctx) {
     walker.hooks.onStep = (surf, run) => music.sfx('step', { surf: ground(surf), lvl: 0.45 + 0.35 * run });
     walker.hooks.onLand = (v, surf) => music.sfx('land', { surf: ground(surf), lvl: Math.min(1, v / 18) });
     bindTouch();
+    bindMap();
     $('#omikuji').addEventListener('click', closeCard);
   }
   function ground(surf) {
@@ -110,20 +115,23 @@ export function createWalkMode(ctx) {
     else if (!walker.placed) spawnFromView();
     walker.visible = true;
     camDist = window.innerWidth < window.innerHeight ? 15 : 12.5;
-    aimBehind();
-    // fly to a spot behind the walker that is clear of walls
-    const f = walker.focus(new THREE.Vector3());
-    const free = Math.max(1.5, clearance(f, want, camDist) - 0.4);
-    effDist = Math.min(camDist, free);
-    const p = f.clone().addScaledVector(want, effDist);
-    ctx.flyTo(p.toArray(), f.toArray(), at ? 0.01 : 1.9);
+    frame(at ? 0.01 : 1.9);
     shownPlace = null; placeT = 0; placeK = null;
     if (!mapBase) setTimeout(buildMap, 400);   // after the fly-in has started
     $('#walkKeys').classList.add('show');
     clearTimeout(keysTimer); keysTimer = setTimeout(() => $('#walkKeys').classList.remove('show'), 9000);
     return true;
   }
+  // fly the camera to a spot behind the walker that is clear of walls
+  function frame(dur) {
+    aimBehind();
+    const f = walker.focus(new THREE.Vector3());
+    const free = Math.max(1.5, clearance(f, want, camDist) - 0.4);
+    effDist = Math.min(camDist, free);
+    ctx.flyTo(f.clone().addScaledVector(want, effDist).toArray(), f.toArray(), dur);
+  }
   function leave() {
+    closeMap();
     active = false;
     document.body.classList.remove('walk');
     if (saved) Object.assign(controls, { minDistance: saved.min, maxDistance: saved.max, maxPolarAngle: saved.polar, enablePan: saved.pan });
@@ -166,7 +174,7 @@ export function createWalkMode(ctx) {
       if (a !== action) { action = a; renderPrompt(); }   // touch the DOM only when it changes
     }
     const pk = placeAt(walker.pos.x, walker.pos.y, walker.pos.z);
-    if (pk !== placeK) { placeK = pk; placeT = 0; } else placeT += dt;
+    if (pk !== placeK) { placeK = pk; placeT = 0; showHere(pk); } else placeT += dt;
     if (placeT > 0.8 && pk !== shownPlace) { shownPlace = pk; showPlace(pk); }
     if ((mapT += dt) > 0.07) { mapT = 0; drawMap(); }
   }
@@ -320,19 +328,24 @@ export function createWalkMode(ctx) {
     el.classList.remove('show'); void el.offsetWidth; el.classList.add('show');
     clearTimeout(placeTimer); placeTimer = setTimeout(() => el.classList.remove('show'), 3600);
     if (isNew && found.size === N_PLACES) setTimeout(() => toast('全部 · You have found every corner of the city'), 3800);
+    if (bigOpen) renderList();
   }
 
   // ----------------------------------------------------------------- map
-  const MS = 2;  // world units per map pixel
+  // One top-down picture of the old town (a pixel per voxel column, hill-shaded),
+  // drawn small at the side and large when opened (click it, or Tab). On the big
+  // map, a place you have already found can be clicked to go straight there.
+  const MW = FINE.x1 - FINE.x0 + 1, MH = FINE.z1 - FINE.z0 + 1;
+  const vendPins = [];
+  let mapBuilding = false, bigOpen = false, closing = null, hot = [], hoverK = null, hereK = null;
   // built in small slices (a few ms each) so entering walk mode never stutters;
   // each column scan starts at the top of its tallest voxel chunk
-  let mapBuilding = false;
   function buildMap() {
     if (mapBuilding) return;
     mapBuilding = true;
-    const W = Math.floor((FINE.x1 - FINE.x0) / MS) + 1, Hh = Math.floor((FINE.z1 - FINE.z0) / MS) + 1;
-    const cv = document.createElement('canvas'); cv.width = W; cv.height = Hh;
-    const g = cv.getContext('2d'), img = g.createImageData(W, Hh), P = city.palette, world = city.fine;
+    const cv = document.createElement('canvas'); cv.width = MW; cv.height = MH;
+    const g = cv.getContext('2d'), img = g.createImageData(MW, MH), P = city.palette, world = city.fine;
+    const hgt = new Float32Array(MW * MH), vendAt = [];
     const tops = new Map();
     for (const c of world.chunks.values()) {
       if (c.y1 < 0) continue;
@@ -342,55 +355,217 @@ export function createWalkMode(ctx) {
     let j = 0;
     const slice = () => {
       const t0 = performance.now();
-      for (; j < Hh && performance.now() - t0 < 5; j++) for (let i = 0; i < W; i++) {
-        const x = FINE.x0 + i * MS, z = FINE.z0 + j * MS;
+      for (; j < MH && performance.now() - t0 < 5; j++) for (let i = 0; i < MW; i++) {
+        const x = FINE.x0 + i, z = FINE.z0 + j, gh = groundH(x, z);
         let y = tops.get((x >> 6) + ',' + (z >> 6)) ?? 0;
         while (y > 0 && !world.get(x, y, z)) y--;
         const e = P.list[world.get(x, y, z)];
-        const hgt = y - groundH(x, z);
-        const k = hgt > 2 ? 0.62 + Math.min(0.55, hgt / 70) : 0.4;
+        const h = y - gh;
+        const k = h > 2 ? 0.62 + Math.min(0.55, h / 70) : 0.42;
         const c = e ? e.s : [0.2, 0.2, 0.3], em = e && e.em >= 1 ? 1.5 : 1;
-        const o = (i + j * W) * 4;
+        const o = (i + j * MW) * 4;
         img.data[o] = 255 * Math.min(1, (c[0] * 0.75 + 0.1) * k * em);
         img.data[o + 1] = 255 * Math.min(1, (c[1] * 0.7 + 0.07) * k * em);
         img.data[o + 2] = 255 * Math.min(1, (c[2] * 0.7 + 0.16) * k * em);
-        img.data[o + 3] = 235;
+        img.data[o + 3] = 240;
+        hgt[i + j * MW] = y;
+        for (let yy = gh + 1; yy <= gh + 5; yy++) if (vend.has(world.get(x, yy, z))) { vendAt.push([x, z]); break; }
       }
-      if (j < Hh) { setTimeout(slice, 0); return; }
+      if (j < MH) { setTimeout(slice, 0); return; }
+      // light from the north-west: lit edges and a short shadow to the south-east
+      for (let jj = 2; jj < MH; jj++) for (let i = 2; i < MW; i++) {
+        const q = i + jj * MW, d = hgt[q] - Math.max(hgt[q - MW - 1], hgt[q - 2 * MW - 2] - 2);
+        const f = d > 0 ? Math.min(1.3, 1 + d * 0.05) : Math.max(0.62, 1 + d * 0.035);
+        for (let ch = 0; ch < 3; ch++) img.data[q * 4 + ch] = Math.min(255, img.data[q * 4 + ch] * f);
+      }
       g.putImageData(img, 0, 0);
+      // the railway viaduct (its own model, not in the voxel world): deck, ballast, two tracks
+      g.save(); g.translate(TRACK.x - FINE.x0 + 0.5, TRACK.z - FINE.z0 + 0.5); g.rotate(TRACK.angle);
+      g.fillStyle = 'rgba(8,4,18,0.45)'; g.fillRect(-700, -9, 1400, 24);
+      g.fillStyle = '#6e6684'; g.fillRect(-700, -11, 1400, 22);
+      g.fillStyle = '#3c3550'; g.fillRect(-700, -8, 1400, 16);
+      g.fillStyle = '#c9c0d8'; for (const z of [-6, -2, 2, 6]) g.fillRect(-700, z, 1400, 1);
+      g.restore();
+      // one pin per vending machine (each is a few voxels wide)
+      for (const [x, z] of vendAt) if (!vendPins.some((v) => Math.abs(v[0] - x) < 5 && Math.abs(v[1] - z) < 5)) vendPins.push([x, z]);
       mapBase = cv;
       drawMap();
     };
     slice();
   }
+
+  // the outline of the walker and what the camera sees, for both maps
+  function drawYou(g, X, Z, r) {
+    const px = X(walker.pos.x), pz = Z(walker.pos.z);
+    camera.getWorldDirection(dir);
+    const a = Math.atan2(dir.z, dir.x), R = r * 13;
+    const grd = g.createRadialGradient(px, pz, r, px, pz, R);
+    grd.addColorStop(0, 'rgba(255,236,210,0.42)'); grd.addColorStop(1, 'rgba(255,236,210,0)');
+    g.fillStyle = grd; g.beginPath(); g.moveTo(px, pz); g.arc(px, pz, R, a - 0.55, a + 0.55); g.closePath(); g.fill();
+    g.save(); g.translate(px, pz); g.rotate(Math.atan2(Math.cos(walker.yaw), Math.sin(walker.yaw))); g.scale(r, r);
+    g.shadowColor = '#ff9ac2'; g.shadowBlur = 12; g.fillStyle = '#fff'; g.strokeStyle = 'rgba(30,14,40,0.8)'; g.lineWidth = 1.2 / r * 1.6;
+    g.beginPath(); g.moveTo(5.5, 0); g.lineTo(-3.5, 3.5); g.lineTo(-1.5, 0); g.lineTo(-3.5, -3.5); g.closePath(); g.fill(); g.shadowBlur = 0; g.stroke();
+    g.restore();
+  }
+  function txt(g, s, x, y, font, col, halo = 'rgba(14,8,28,0.82)', hw = 3) {
+    g.font = font; g.lineJoin = 'round'; g.lineWidth = hw; g.strokeStyle = halo; g.strokeText(s, x, y); g.fillStyle = col; g.fillText(s, x, y);
+  }
+  function pin(g, x, y, r, col) {
+    g.fillStyle = 'rgba(14,8,28,0.75)'; g.beginPath(); g.arc(x, y, r + 1.5, 0, Math.PI * 2); g.fill();
+    g.fillStyle = col; g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill();
+  }
+
+  // the corner map: short names, the place you're in picked out
   function drawMap() {
     if (!mapBase || !walker) return;
-    const cv = $('#minimap'), g = cv.getContext('2d');
-    if (cv.width !== mapBase.width * 2) { cv.width = mapBase.width * 2; cv.height = mapBase.height * 2; }
-    const s = cv.width / (mapBase.width * MS);
+    const cv = $('#minimap'), u = Math.min(2, window.devicePixelRatio || 1);
+    const cw = Math.round((cv.clientWidth || 140) * u), ch = Math.round((cv.clientHeight || 195) * u);
+    if (cv.width !== cw || cv.height !== ch) { cv.width = cw; cv.height = ch; }
+    const g = cv.getContext('2d'), s = cw / MW;
+    const X = (x) => (x - FINE.x0) * s, Z = (z) => (z - FINE.z0) * s;
+    g.imageSmoothingEnabled = false;
+    g.clearRect(0, 0, cw, ch);
+    g.drawImage(mapBase, 0, 0, cw, ch);
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+    const fs = Math.max(8, Math.min(11, cw / u / 13)) * u;
+    pin(g, X(TORII.x), Z(TORII.z), 2.2 * u, '#ff5a3a');
+    for (const [k, p] of Object.entries(PLACES)) {
+      if (!p.at) continue;
+      const here = k === placeK, [nm, x, z] = p.s || [p.jp, ...p.at];
+      txt(g, nm, X(x), Z(z), `${here ? 700 : 600} ${here ? fs * 1.12 : fs}px "Hiragino Sans", "Noto Sans JP", sans-serif`,
+        here ? '#ffd9a8' : found.has(k) ? 'rgba(255,240,250,0.92)' : 'rgba(255,240,250,0.55)', 'rgba(14,8,28,0.85)', 2.6 * u);
+    }
+    drawYou(g, X, Z, 1.6 * u);
+    if (bigOpen) drawBig();
+  }
+
+  // the big map: full names, what you can do where, and a way back to places you know
+  function drawBig() {
+    const cv = $('#bigmap');
+    if (!bigOpen || !mapBase || !cv.width || !cv.clientWidth) return;   // closed, or not laid out yet
+    const g = cv.getContext('2d'), u = cv.width / cv.clientWidth, s = cv.width / MW;
     const X = (x) => (x - FINE.x0) * s, Z = (z) => (z - FINE.z0) * s;
     g.imageSmoothingEnabled = false;
     g.clearRect(0, 0, cv.width, cv.height);
     g.drawImage(mapBase, 0, 0, cv.width, cv.height);
-    const dot = (x, z, col, r = 5) => { g.fillStyle = col; g.beginPath(); g.arc(X(x), Z(z), r, 0, Math.PI * 2); g.fill(); };
-    g.font = '600 20px "Hiragino Sans", sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
-    const label = (x, z, txt, col) => { g.fillStyle = 'rgba(10,6,20,0.55)'; g.fillText(txt, X(x) + 1, Z(z) + 1); g.fillStyle = col; g.fillText(txt, X(x), Z(z)); };
-    dot(TORII.x, TORII.z, '#ff5a3a'); label(TORII.x, TORII.z - 12, '鳥居', '#ffb0a0');
-    label(PAGODA.x, PAGODA.z, '塔', '#ffe0a0');
-    label(OFFERING.x - 10, OFFERING.z, '社', '#ffe0a0');
-    label(0, -140, '繁華街', '#ffc0f0');
-    const px = X(walker.pos.x), pz = Z(walker.pos.z);
-    // what the camera sees
-    camera.getWorldDirection(dir);
-    const a = Math.atan2(dir.z, dir.x);
-    const grd = g.createRadialGradient(px, pz, 4, px, pz, 70);
-    grd.addColorStop(0, 'rgba(255,236,210,0.38)'); grd.addColorStop(1, 'rgba(255,236,210,0)');
-    g.fillStyle = grd; g.beginPath(); g.moveTo(px, pz); g.arc(px, pz, 70, a - 0.55, a + 0.55); g.closePath(); g.fill();
-    // the walker
-    g.save(); g.translate(px, pz); g.rotate(Math.atan2(Math.cos(walker.yaw), Math.sin(walker.yaw)));
-    g.shadowColor = '#ff9ac2'; g.shadowBlur = 12; g.fillStyle = '#fff';
-    g.beginPath(); g.moveTo(11, 0); g.lineTo(-7, 7); g.lineTo(-3, 0); g.lineTo(-7, -7); g.closePath(); g.fill();
-    g.restore();
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+    // Tokyo Tower is off the top of the map
+    const tx = X(Math.min(FINE.x1 - 10, TOWER.x));
+    g.fillStyle = 'rgba(255,150,90,0.9)'; g.beginPath(); g.moveTo(tx, 6 * u); g.lineTo(tx - 6 * u, 15 * u); g.lineTo(tx + 6 * u, 15 * u); g.closePath(); g.fill();
+    txt(g, '東京タワー', tx, 26 * u, `600 ${11 * u}px "Hiragino Sans", sans-serif`, '#ffc79a', undefined, 3 * u);
+    txt(g, 'TOKYO TOWER', tx, 39 * u, `600 ${8.5 * u}px "Space Grotesk", sans-serif`, 'rgba(255,220,200,0.75)', undefined, 3 * u);
+    // things to do
+    for (const [x, z] of vendPins) { g.fillStyle = 'rgba(14,8,28,0.8)'; g.fillRect(X(x) - 4 * u, Z(z) - 4 * u, 8 * u, 8 * u); g.fillStyle = '#7fe3ff'; g.fillRect(X(x) - 2.6 * u, Z(z) - 2.6 * u, 5.2 * u, 5.2 * u); }
+    pin(g, X(TORII.x), Z(TORII.z), 4 * u, '#ff5a3a');
+    txt(g, '鳥居', X(TORII.x) + 8 * u, Z(TORII.z), `600 ${10 * u}px "Hiragino Sans", sans-serif`, '#ffb4a4', undefined, 3 * u);
+    g.textAlign = 'center';
+    for (const [x, z, jp] of [[OFFERING.x, OFFERING.z, '参拝'], [BELL.x, BELL.z, '鐘']]) {
+      pin(g, X(x), Z(z), 4 * u, '#ffc85a');
+      g.textAlign = 'left'; txt(g, jp, X(x) + 8 * u, Z(z), `600 ${10 * u}px "Hiragino Sans", sans-serif`, '#ffe0a0', undefined, 3 * u); g.textAlign = 'center';
+    }
+    // places
+    hot = [];
+    for (const [k, p] of Object.entries(PLACES)) {
+      if (!p.at) continue;
+      const x = X(p.at[0]), y = Z(p.at[1]), on = found.has(k), here = k === placeK, hov = k === hoverK;
+      if (hov && on) { g.fillStyle = 'rgba(255,200,150,0.18)'; g.beginPath(); g.arc(x, y + 4 * u, 34 * u, 0, Math.PI * 2); g.fill(); }
+      const col = here ? '#ffd9a8' : on ? '#fff3fa' : 'rgba(255,240,250,0.55)';
+      txt(g, p.jp, x, y - 2 * u, `700 ${(here || hov ? 17 : 15.5) * u}px "Shippori Mincho", "Hiragino Mincho ProN", serif`, col, 'rgba(14,8,28,0.85)', 4 * u);
+      txt(g, (on ? p.en : '? ' + p.en).toUpperCase(), x, y + 13 * u, `600 ${8 * u}px "Space Grotesk", sans-serif`, on ? 'rgba(255,236,244,0.9)' : 'rgba(255,236,244,0.5)', 'rgba(14,8,28,0.85)', 3 * u);
+      if (on) hot.push({ k, x: x / u, y: y / u });
+    }
+    drawYou(g, X, Z, 2.4 * u);
+  }
+
+  function sizeBig() {
+    const cv = $('#bigmap'), r = cv.getBoundingClientRect(), u = Math.min(2, window.devicePixelRatio || 1);
+    cv.width = Math.round(r.width * u); cv.height = Math.round(r.height * u);
+  }
+  function renderList() {
+    const ol = $('#mapList');
+    ol.innerHTML = Object.entries(PLACES).map(([k, p]) => {
+      const on = found.has(k), here = k === placeK, go = on && !here && p.go;
+      const note = here ? 'You are here' : !on ? 'Not found yet' : go ? 'Go there →' : '';
+      return `<li data-k="${k}" class="${on ? 'on' : ''} ${here ? 'here' : ''} ${go ? 'go' : ''}"><b>${on ? p.jp : '？'}</b><span>${on ? p.en : p.hint}</span><i>${note}</i></li>`;
+    }).join('');
+    $('#mapCount').textContent = `${found.size} / ${N_PLACES} found`;
+  }
+  function openMap() {
+    if (bigOpen || !active || !walker) return;
+    if (!mapBase) buildMap();
+    clearTimeout(closing); closing = null;
+    bigOpen = true; hoverK = null;
+    const box = $('#mapBig');
+    box.getAnimations({ subtree: true }).forEach((a) => a.cancel());
+    box.classList.add('show'); box.setAttribute('aria-hidden', 'false');
+    void box.offsetWidth;                                // so the backdrop fades in
+    document.body.classList.add('mapopen');
+    renderList(); sizeBig(); drawBig();
+    music.sfx('map', { open: true });
+    // grow out of the corner map
+    const a = $('#minimap').getBoundingClientRect(), panel = box.querySelector('.panel');
+    const b = $('#bigmap').getBoundingClientRect(), pr = panel.getBoundingClientRect();
+    if (a.width > 0) {
+      panel.style.transformOrigin = `${b.left - pr.left}px ${b.top - pr.top}px`;
+      panel.animate([{ transform: `translate(${a.left - b.left}px, ${a.top - b.top}px) scale(${a.width / b.width})`, opacity: 0.5 }, { transform: 'none', opacity: 1 }],
+        { duration: 420, easing: 'cubic-bezier(0.2, 0.8, 0.2, 1)' });
+    }
+  }
+  function closeMap() {
+    if (!bigOpen) return;
+    bigOpen = false; hoverK = null;
+    const box = $('#mapBig'), panel = box.querySelector('.panel');
+    box.setAttribute('aria-hidden', 'true');
+    document.body.classList.remove('mapopen');
+    music.sfx('map', { open: false });
+    const a = $('#minimap').getBoundingClientRect(), b = $('#bigmap').getBoundingClientRect();
+    const done = () => { if (!bigOpen) box.classList.remove('show'); };
+    if (a.width > 0 && active) {
+      panel.animate([{ transform: 'none', opacity: 1 }, { transform: `translate(${a.left - b.left}px, ${a.top - b.top}px) scale(${a.width / b.width})`, opacity: 0 }],
+        { duration: 300, easing: 'cubic-bezier(0.5, 0, 0.75, 0)', fill: 'forwards' });
+    }
+    closing = setTimeout(() => { done(); box.getAnimations({ subtree: true }).forEach((x) => x.cancel()); }, 300);
+  }
+  // walk straight to a place you know: the walker is set down there and the camera flies over
+  function travel(k) {
+    const p = PLACES[k];
+    if (!p?.go || !found.has(k) || !walker) return;
+    closeMap(); closeCard();
+    walker.place(p.go[0], p.go[1], groundH(Math.floor(p.go[0]), Math.floor(p.go[1])) + 1, p.go[2]);   // at street level, never on the viaduct
+    frame(1.5);
+    music.sfx('travel');
+    shownPlace = null; placeK = null; placeT = 0;
+  }
+  function hotAt(e) {
+    const r = $('#bigmap').getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top;
+    let best = null, bd = 40;
+    for (const h of hot) { const d = Math.hypot(h.x - x, (h.y + 4) - y); if (d < bd) { bd = d; best = h.k; } }
+    return best;
+  }
+  function bindMap() {
+    $('#minimap').addEventListener('click', openMap);
+    $('#mapClose').addEventListener('click', closeMap);
+    $('#mapBig').addEventListener('click', (e) => { if (e.target.id === 'mapBig') closeMap(); });
+    const big = $('#bigmap');
+    big.addEventListener('pointermove', (e) => {
+      const k = hotAt(e);
+      big.style.cursor = k && k !== placeK && PLACES[k].go ? 'pointer' : 'default';
+      if (k !== hoverK) { hoverK = k; drawBig(); }
+    });
+    big.addEventListener('pointerleave', () => { if (hoverK) { hoverK = null; drawBig(); } });
+    big.addEventListener('click', (e) => { const k = hotAt(e); if (k && k !== placeK) travel(k); });
+    const ol = $('#mapList');
+    ol.addEventListener('click', (e) => { const li = e.target.closest('li.go'); if (li) travel(li.dataset.k); });
+    ol.addEventListener('pointerover', (e) => { const li = e.target.closest('li'); const k = li && found.has(li.dataset.k) ? li.dataset.k : null; if (k !== hoverK) { hoverK = k; drawBig(); } });
+    ol.addEventListener('pointerleave', () => { hoverK = null; drawBig(); });
+    window.addEventListener('resize', () => { if (bigOpen) { sizeBig(); drawBig(); } });
+  }
+  function showHere(k) {
+    if (k === hereK) return;
+    hereK = k;
+    const el = $('#mapHere'), p = PLACES[k];
+    el.innerHTML = p ? `<b>${p.jp}</b><span>${p.en}</span>` : '';
+    if (bigOpen) renderList();
   }
 
   // ---------------------------------------------------------------- touch
@@ -411,13 +586,14 @@ export function createWalkMode(ctx) {
     });
     base.addEventListener('pointermove', (e) => { if (joy.on && e.pointerId === joy.id) move(e); });
     const end = () => { joy.on = false; joy.x = joy.y = 0; knob.style.transform = ''; };
-    base.addEventListener('pointerup', end); base.addEventListener('pointercancel', end);
+    base.addEventListener('pointerup', end); base.addEventListener('pointercancel', end); base.addEventListener('lostpointercapture', end);
     $('#btnJump').addEventListener('pointerdown', (e) => { e.preventDefault(); jumpReq = true; });
     $('#btnAct').addEventListener('pointerdown', (e) => { e.preventDefault(); act(); });
   }
 
   return {
     init, enter, leave, update, follow, act,
+    map: { open: openMap, close: closeMap, toggle: () => (bigOpen ? closeMap() : openMap()), get isOpen() { return bigOpen; } },
     jump() { jumpReq = true; },
     get active() { return active; },
     get walker() { return walker; },

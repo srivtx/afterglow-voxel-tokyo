@@ -647,7 +647,8 @@ function bindUI() {
     if (state.mode === 'walk') {
       if (k === ' ') { e.preventDefault(); walk.jump(); return; }
       if (k === 'e') { walk.act(); return; }
-      if (k === 'escape') { setMode('explore'); return; }
+      if (k === 'tab') { e.preventDefault(); walk.map.toggle(); return; }
+      if (k === 'escape') { if (walk.map.isOpen) walk.map.close(); else setMode('explore'); return; }
       if (k.startsWith('arrow')) { e.preventDefault(); return; }
     }
     if (k === 'v') setMode(state.mode === 'walk' ? 'explore' : 'walk');

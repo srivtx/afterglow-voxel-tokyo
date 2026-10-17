@@ -649,6 +649,11 @@ export function createMusic() {
       else if (name === 'vending') vending(t);
       else if (name === 'honk') honk(t, o.lvl ?? 1, o.pan ?? 0);
       else if (name === 'bell') scape.bell();
+      else if (name === 'map') {                         // a paper map unfolding (or folding away)
+        const o2 = sfxOut(0, 0.05);
+        burst(o2, t, 'bandpass', o.open ? 2600 : 1900, 0.7, 0.05, 0.16, 0.03);
+        burst(o2, t + 0.07, 'bandpass', o.open ? 3400 : 2300, 0.9, 0.035, 0.12, 0.02);
+      } else if (name === 'travel') { const o2 = sfxOut(0, 0.25); blip(o2, t, 'sine', 520, 1040, 0.02, 0.05, 0.7); blip(o2, t + 0.09, 'sine', 780, 1560, 0.02, 0.03, 0.6); }
     },
     // audio for clip recording
     stream() {
