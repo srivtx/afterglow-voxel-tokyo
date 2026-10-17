@@ -182,7 +182,7 @@ const VIEWS = {
   shrine: { label: 'Shrine', pos: [TORII.x + 30, 30, TORII.z + 48], target: [TORII.x, 34, TORII.z - 10] },
   pagoda: { label: 'Pagoda', pos: [PAGODA.x + 56, 64, PAGODA.z + 52], target: [PAGODA.x, 66, PAGODA.z] },
   street: { label: 'Street', pos: [2, 28, 104], target: [0, 16, -80] },
-  neon: { label: 'Neon', pos: [2, 6, -66], target: [-1, 13, -190] },
+  neon: { label: 'Neon', pos: [0, 8.5, -66], target: [-1, 14, -190] }, // centre line, clear of bus roofs
   rail: { label: 'Railway', pos: [70, 56, 46], target: [0, 32, -40] },
   tower: { label: 'Tower', pos: [TOWER.x - 70, 40, TOWER.z + 150], target: [TOWER.x, 140, TOWER.z] },
   aerial: { label: 'Aerial', pos: [-300, 320, 420], target: [20, 20, -140] },

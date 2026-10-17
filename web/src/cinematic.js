@@ -53,8 +53,10 @@ export function makeShots(ctx) {
         // low dolly down the neon boulevard, under the hanging signs
         const e = easeInOut(u);
         const z = THREE.MathUtils.lerp(-60, -172, e);
-        const x = Math.sin(u * 3.2) * 2.2;
-        return { p: V(x, 7 + Math.sin(u * Math.PI) * 1.5, z), l: V(x * 0.4, 19 + u * 4, z - 120) };
+        // stays over the centre line, above the bus roofs (y 5.5), so oncoming
+        // headlights never pass right under the lens and flood the bloom
+        const x = Math.sin(u * 3.2) * 0.5;
+        return { p: V(x, 8.5 + Math.sin(u * Math.PI) * 1.5, z), l: V(x * 0.4, 19 + u * 4, z - 120) };
       },
     },
     {
@@ -105,6 +107,7 @@ export class Director {
     this.shots = makeShots(ctx);
     this.active = false; this.i = 0; this.t = 0; this.paused = false;
     this.look = new THREE.Vector3();
+    this.lensA = 0; this.lensB = 0;
   }
   get count() { return this.shots.filter((s) => !s.when || s.when()).length; }
   get index() { return this.shots.slice(0, this.i).filter((s) => !s.when || s.when()).length; }
@@ -144,7 +147,12 @@ export class Director {
     this.camera.position.copy(p);
     this.look.copy(l);
     this.camera.lookAt(l);
-    const fov = THREE.MathUtils.lerp(s.fov[0], s.fov[1], u) - (this.ctx.pulse?.() || 0) * 0.45;
+    // the lens breathes with the kick: two cascaded smoothers turn the sharp
+    // kick envelope into an eased swell of ~0.1° instead of a snap
+    const k = 1 - Math.exp(-8 * dt);
+    this.lensA += ((this.ctx.pulse?.() || 0) - this.lensA) * k;
+    this.lensB += (this.lensA - this.lensB) * k;
+    const fov = THREE.MathUtils.lerp(s.fov[0], s.fov[1], u) - this.lensB * 0.4;
     if (Math.abs(this.camera.fov - fov) > 1e-3) { this.camera.fov = fov; this.camera.updateProjectionMatrix(); }
     // dip-to-black between shots
     const fade = Math.min(1, this.t / 0.7, (this.dur - this.t) / 0.7);
