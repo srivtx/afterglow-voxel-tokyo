@@ -354,6 +354,74 @@ export function createMusic() {
     }
   }
 
+  // ------------------------------------------------- the walker's world
+  // footsteps per surface, the shrine (coin, suzu bell, two claps), a vending
+  // machine, car horns. All on the city channel, so N mutes them too.
+  function sfxOut(pan = 0, verb = 0.06) {
+    const p = ctx.createStereoPanner(); p.pan.value = Math.max(-1, Math.min(1, pan));
+    p.connect(amb);
+    if (verb) { const v = ctx.createGain(); v.gain.value = verb; p.connect(v).connect(ambVerbIn); }
+    return p;
+  }
+  const blip = (dest, t, type, f0, f1, a, peak, dec) => {
+    const o = ctx.createOscillator(); o.type = type;
+    o.frequency.setValueAtTime(f0, t); if (f1 !== f0) o.frequency.exponentialRampToValueAtTime(f1, t + dec);
+    const g = ctx.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(peak, t + a); g.gain.exponentialRampToValueAtTime(0.0001, t + dec);
+    o.connect(g).connect(dest); o.start(t); o.stop(t + dec + 0.05);
+  };
+  const burst = (dest, t, type, f, q, peak, dec, a = 0.003) => {
+    const n = noise(t, dec + 0.05);
+    const b = ctx.createBiquadFilter(); b.type = type; b.frequency.value = f; b.Q.value = q;
+    const g = ctx.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(peak, t + a); g.gain.exponentialRampToValueAtTime(0.0001, t + dec);
+    n.connect(b).connect(g).connect(dest);
+  };
+  const STEP = { stone: [1500, 1.1, 0.055, 0.3], gravel: [2600, 0.6, 0.1, 0.24], grass: [800, 0.7, 0.08, 0.13], wood: [480, 2.2, 0.07, 0.34], snow: [1700, 0.5, 0.15, 0.2], wet: [2000, 0.8, 0.07, 0.24] };
+  function footstep(t, surf, lvl, pan) {
+    const o = sfxOut(pan, 0.04), P = STEP[surf] || STEP.stone, r = 0.9 + Math.random() * 0.2;
+    burst(o, t, 'bandpass', P[0] * r, P[1], P[3] * lvl, P[2] * r);
+    blip(o, t, 'sine', surf === 'wood' ? 150 : 100, 48, 0.003, (surf === 'grass' || surf === 'snow' ? 0.08 : 0.16) * lvl, 0.07);
+    if (surf === 'snow' || surf === 'gravel') for (let i = 0; i < 7; i++) burst(o, t + 0.01 + Math.random() * 0.07, 'highpass', 2800 + Math.random() * 2500, 0.7, 0.06 * lvl, 0.012);
+    if (surf === 'wet') {
+      burst(o, t + 0.01, 'highpass', 3600, 0.6, 0.12 * lvl, 0.14, 0.01);
+      blip(o, t + 0.02, 'sine', 1300 + Math.random() * 400, 650, 0.002, 0.03 * lvl, 0.05);
+    }
+  }
+  function clap(t, pan) {
+    const o = sfxOut(pan, 0.35);
+    burst(o, t, 'bandpass', 1150, 0.9, 0.55, 0.09, 0.002);
+    burst(o, t + 0.008, 'bandpass', 2300, 1.2, 0.25, 0.05, 0.002);
+  }
+  function suzu(t) {                       // the big shrine bell rattled by its rope
+    const o = sfxOut(0, 0.4);
+    for (let i = 0; i < 16; i++) {
+      const tt = t + Math.pow(Math.random(), 1.6) * 0.75, f = 2300 + Math.random() * 1500;
+      blip(o, tt, 'sine', f, f, 0.002, 0.05, 0.5 + Math.random() * 0.5);
+      blip(o, tt, 'sine', f * 2.76, f * 2.76, 0.002, 0.018, 0.25);
+    }
+  }
+  function coin(t) {
+    const o = sfxOut(0, 0.2);
+    for (const [dt, f] of [[0, 3400], [0.16, 4100], [0.27, 2900]]) { blip(o, t + dt, 'sine', f, f, 0.001, 0.07, 0.18); blip(o, t + dt, 'sine', f * 1.5, f * 1.5, 0.001, 0.03, 0.08); }
+    burst(o, t + 0.42, 'bandpass', 900, 1.5, 0.15, 0.08);   // into the wooden box
+  }
+  function vending(t) {
+    const o = sfxOut(0, 0.12);
+    blip(o, t, 'sine', 1320, 1320, 0.005, 0.05, 0.12);        // button beep
+    blip(o, t + 0.5, 'sine', 90, 42, 0.004, 0.5, 0.25);       // gakon!
+    burst(o, t + 0.5, 'lowpass', 420, 0.8, 0.45, 0.2);
+    blip(o, t + 0.52, 'triangle', 620, 600, 0.002, 0.06, 0.35); // can rings in the tray
+    burst(o, t + 0.68, 'bandpass', 1800, 2, 0.08, 0.06);
+  }
+  function honk(t, lvl, pan) {
+    const o = sfxOut(pan, 0.15);
+    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 1900; lp.connect(o);
+    for (const [dt, d] of [[0, 0.16], [0.24, 0.32]]) for (const f of [415, 523]) {
+      const v = ctx.createOscillator(); v.type = 'square'; v.frequency.value = f;
+      const g = ctx.createGain(); g.gain.setValueAtTime(0.0001, t + dt); g.gain.linearRampToValueAtTime(0.06 * lvl, t + dt + 0.01); g.gain.setValueAtTime(0.06 * lvl, t + dt + d); g.gain.linearRampToValueAtTime(0.0001, t + dt + d + 0.03);
+      v.connect(g).connect(lp); v.start(t + dt); v.stop(t + dt + d + 0.05);
+    }
+  }
+
   // ------------------------------------------------------------ composer
   function section() {
     if (bar < 4) return 'intro';
@@ -568,6 +636,19 @@ export function createMusic() {
     boom(delay, size = 1, crackle = false) {
       if (!ambOn || !ctx) return;
       boom(ctx.currentTime + delay, size, crackle);
+    },
+    // little sounds from the walker's world (see walkmode.js)
+    sfx(name, o = {}) {
+      if (!ambOn || !ctx) return;
+      const t = ctx.currentTime + 0.01;
+      if (name === 'step') footstep(t, o.surf, o.lvl ?? 0.6, o.pan ?? 0);
+      else if (name === 'land') { footstep(t, o.surf, 1.2, 0); blip(sfxOut(0, 0.1), t, 'sine', 120, 40, 0.004, 0.3 * (o.lvl ?? 1), 0.16); }
+      else if (name === 'clap') { clap(t, -0.05); clap(t + 0.36, 0.05); }
+      else if (name === 'suzu') suzu(t);
+      else if (name === 'coin') coin(t);
+      else if (name === 'vending') vending(t);
+      else if (name === 'honk') honk(t, o.lvl ?? 1, o.pan ?? 0);
+      else if (name === 'bell') scape.bell();
     },
     // audio for clip recording
     stream() {

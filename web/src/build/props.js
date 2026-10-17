@@ -83,6 +83,24 @@ export function buildProps(W, P, rng, reserve) {
   return wires;
 }
 
+// The same wires as 1-pixel lines. A tube thinner than a pixel breaks up into
+// dots without antialiasing; drawn together, the line keeps it continuous far
+// away and the tube gives it body up close.
+export function wireLines(wires) {
+  const pts = [];
+  for (const [a, b, sag] of wires) {
+    const len = a.distanceTo(b);
+    const mid = a.clone().add(b).multiplyScalar(0.5);
+    mid.y -= sag * (0.6 + len * 0.025) * 2;
+    const curve = new THREE.QuadraticBezierCurve3(a, mid, b);
+    const n = Math.max(6, Math.ceil(len / 5)), p = curve.getPoints(n);
+    for (let i = 0; i < n; i++) pts.push(p[i].x, p[i].y, p[i].z, p[i + 1].x, p[i + 1].y, p[i + 1].z);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
+  return g;
+}
+
 export function wireGeometry(wires, radius = 0.09) {
   const geos = [];
   for (const [a, b, sag] of wires) {

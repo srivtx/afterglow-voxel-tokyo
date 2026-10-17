@@ -12,6 +12,8 @@ Everything is generated procedurally in the browser in a few seconds. There are 
 | --- | --- | --- |
 | ![sky writing](preview-skywrite.jpg) | ![shapes](preview-shapes.jpg) | ![matsuri](preview-matsuri.jpg) |
 
+![散歩 · walk mode: the lantern approach to the shrine](preview-walk.jpg)
+
 ## Run
 
 ```bash
@@ -24,7 +26,7 @@ Then open <http://localhost:5180>. Any static file server works.
 URL options: `?view=hero|shrine|pagoda|street|neon|rail|tower|aerial`, `?t=0..1` (time of day), `?cine` (start the film), `?noui`,
 `?season=spring|summer|autumn|winter`, `?weather=clear|rain|snow`, `?style=ink`, `?hanabi=1`, `?life=0`,
 `?sign=TEXT&signc=pink|cyan|yellow|purple|green|orange|red|white&signs=panel`, `?cam=x,y,z,tx,ty,tz`,
-`?sky=MESSAGE&skyp=rainbow|gold|sakura|neon|confetti` (fireworks that spell it), `?lanterns=1`, `?matsuri`.
+`?sky=MESSAGE&skyp=rainbow|gold|sakura|neon|confetti` (fireworks that spell it), `?lanterns=1`, `?matsuri`, `?walk=x,y,z,yaw` (start on foot there).
 The link button builds these for you.
 
 ## Controls
@@ -35,6 +37,9 @@ The link button builds these for you.
 | Double-click | focus the orbit on that spot |
 | W A S D, Q E (Shift = fast) | fly |
 | 1–8 | viewpoints |
+| V | 歩 walk mode: explore the streets as a little voxel person |
+| W A S D / Shift / Space (walking) | walk / run / jump; drag to look around, ← → to turn the camera |
+| E (walking) | the thing to do here: pray at the shrine and draw a fortune, strike the temple bell, buy a drink, let a lantern go |
 | C | cinematic mode (Space pause, ← → shots, Esc exit) |
 | T | cycle time of day |
 | M | music: 夕焼けラジオ · Afterglow FM (volume in the now-playing pill) |
@@ -64,6 +69,12 @@ The link button builds these for you.
   - Shaped shells (heart, star, smile, sakura, butterfly) open on a plane that faces you.
   - 空文字 sky-writing: a shell bursts as a sphere, then its sparks rearrange into your text (Latin or Japanese), hang there, and drip away. Long messages go up one shell at a time.
   - The 祭 Matsuri button sets a summer festival night: fireworks, lanterns, music and a grand finale.
+- **`src/walker.js`** and **`src/walkmode.js`**: 散歩, walk mode. The walker is built from the same voxels as the city, so it gets the same light, wet streets and snow on its head.
+  - It dresses for the season: a jacket and sakura hairpin in spring, a yukata with a fan in the obi in summer, a scarf in autumn, a beanie and mittens in winter. It opens a clear umbrella in the rain and carries a paper lantern after dark; the lantern lights the street through a single shader uniform rather than a real light.
+  - Physics runs against the voxel world and the railway viaduct, stepping up kerbs and stairs. Footsteps change with the surface and the weather (stone, gravel, grass, wood, puddles, snow).
+  - The follow camera never sits inside a building, a tree or the viaduct (voxel meshes have no inner faces, so it would see straight through them). When the view behind the walker is blocked it swings round or rises over its head.
+  - Cars stop and queue for you in the road, and honk if you stay. People wait for you to pass.
+  - Nine places to find, with a title card for each and a minimap. On touch screens there is a joystick and buttons.
 - **`src/lanterns.js`**: sky lanterns that lift off from the old street, the shrine and the district, then drift out over the skyline on the evening air. They are instanced and reflect in wet streets.
 - **`src/soundscape.js`**: 環境音, the city's own sound, on a channel separate from the music. It starts on your first click or key press; N mutes it, and the setting is remembered. Every layer is synthesized and follows where the camera is:
   - a traffic hum that grows in the district and fades as you climb

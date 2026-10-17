@@ -317,6 +317,10 @@ export const emissiveGroups = { value: new Float32Array(16).fill(1) };
 // hue. Bright tubes (white, yellow, cyan, green) stop clipping to a white blob
 // and flooding the bloom, so the strokes of a sign stay readable at night.
 export const glowKnee = { value: new THREE.Vector2(1.1, 0.9) };
+// The walker's paper lantern: one warm light baked into the voxel shader as a
+// uniform (xyz position, w strength). Cheaper than a three.js PointLight, which
+// adds a light loop to every material and recompiles them all when it appears.
+export const lanternLight = { value: new THREE.Vector4(0, -1000, 0, 0) };
 
 const FOG_GLSL = /* glsl */ `
   {
@@ -416,7 +420,7 @@ const WET_GLSL = /* glsl */ `
 export function makeVoxelMaterial() {
   const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.88, metalness: 0.0 });
   mat.onBeforeCompile = (sh) => {
-    Object.assign(sh.uniforms, skyU, atmosU, { uGroups: emissiveGroups, uKnee: glowKnee });
+    Object.assign(sh.uniforms, skyU, atmosU, { uGroups: emissiveGroups, uKnee: glowKnee, uLantern: lanternLight });
     sh.vertexShader = sh.vertexShader
       .replace('#include <common>', `#include <common>
         attribute vec3 bake; attribute float grp;
@@ -452,7 +456,7 @@ export function makeVoxelMaterial() {
     sh.fragmentShader = sh.fragmentShader
       .replace('#include <common>', `#include <common>
         varying vec3 vBakeOut; varying vec3 vWPos; varying float vGlow;
-        uniform float uFogDensity; uniform float uFogHeight;
+        uniform float uFogDensity; uniform float uFogHeight; uniform vec4 uLantern;
         ${SKY_GLSL}
         ${ATMOS_FRAG_DECL}`)
       .replace('#include <color_fragment>', `#include <color_fragment>
@@ -460,10 +464,16 @@ export function makeVoxelMaterial() {
       .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
         roughnessFactor = mix(roughnessFactor, 0.14, pudM);`)
       .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
-        totalEmissiveRadiance += vBakeOut;`)
+        totalEmissiveRadiance += vBakeOut;
+        if (uLantern.w > 0.001) {
+          vec3 ld = uLantern.xyz - vWPos; float dl = length(ld);
+          float att = uLantern.w / (1.0 + dl * dl * 0.3) * (1.0 - smoothstep(8.0, 13.0, dl));
+          float ndl = max(dot(normalize(vWN), ld / max(dl, 1e-3)), 0.0) * 0.8 + 0.2;
+          totalEmissiveRadiance += diffuseColor.rgb * vec3(1.0, 0.62, 0.32) * att * ndl;
+        }`)
       .replace('#include <fog_fragment>', WET_GLSL + FOG_GLSL);
   };
-  mat.customProgramCacheKey = () => 'voxel-v3';
+  mat.customProgramCacheKey = () => 'voxel-v4';
   return mat;
 }
 

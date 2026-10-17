@@ -85,7 +85,7 @@ function birdModel(P, up) {
 }
 
 // ---------------------------------------------------------------------------
-export function createLife(scene, P, material) {
+export function createLife(scene, P, material, hooks = {}) {
   const group = new THREE.Group();
   group.name = 'life';
   scene.add(group);
@@ -125,9 +125,9 @@ export function createLife(scene, P, material) {
   let ci = 0;
   for (const lane of lanes) {
     let z = Math.random() * 20;
-    while (z < SPAN - 6) {
+    while (z < SPAN - 26) { // leave room where the lane wraps around
       const kind = carKinds[ci++ % carKinds.length];
-      cars.push({ lane, kind, s: z });
+      cars.push({ lane, kind, s: z, v: lane.speed, len: kind === 'bus' ? 12 : 7, wait: 0, honked: -99 });
       z += (kind === 'bus' ? 26 : 16) + Math.random() * 22;
     }
   }
@@ -172,10 +172,30 @@ export function createLife(scene, P, material) {
   const birdUp = inst(birdModel(P, true), birds.length, false);
   const birdDn = inst(birdModel(P, false), birds.length, false);
 
-  function update(dt, t, rainK) {
+  // player: the walker ({ x, z }) or null. Cars keep their distance, queue up
+  // and wait (with a honk) for anyone standing in the road.
+  function update(dt, t, rainK, player = null) {
     // cars
     for (const c of cars) {
-      c.s = (c.s + c.lane.speed * dt) % SPAN;
+      let gap = Infinity;
+      for (const o of cars) {
+        if (o === c || o.lane !== c.lane) continue;
+        const d = (o.s - c.s + SPAN) % SPAN - (o.len + c.len) / 2;
+        if (d < gap) gap = d;
+      }
+      let blocked = false;
+      if (player && Math.abs(player.x - c.lane.x) < 3.4) {
+        const cz = c.lane.dir < 0 ? Z0 - c.s : Z1 + c.s;
+        const d = (player.z - cz) * c.lane.dir - c.len / 2;
+        if (d > -1.5 && d < gap) { gap = d; blocked = d < 8; }
+      }
+      const want = gap < 3 ? 0 : Math.min(c.lane.speed, (gap - 3) * 1.2);
+      c.v += (want - c.v) * Math.min(1, dt * (want < c.v ? 5 : 1.2));
+      if (blocked && c.v < 0.5) {
+        c.wait += dt;
+        if (c.wait > 1.4 && t - c.honked > 5) { c.honked = t; hooks.onHonk?.(c.lane.x, c.lane.dir < 0 ? Z0 - c.s : Z1 + c.s); }
+      } else c.wait = 0;
+      c.s = (c.s + Math.max(0, c.v) * dt) % SPAN;
       const z = c.lane.dir < 0 ? Z0 - c.s : Z1 + c.s;
       const edge = Math.min(c.s, SPAN - c.s);
       const k = THREE.MathUtils.smoothstep(edge, 0, 6);
@@ -186,7 +206,9 @@ export function createLife(scene, P, material) {
     // people
     const umb = rainK > 0.35;
     for (const w of walkers) {
+      const inWay = player && Math.abs(player.x - w.x) < 1.3 && (player.z - w.z) * w.dir > 0 && (player.z - w.z) * w.dir < 2.4;
       if (w.pause > 0) w.pause -= dt;
+      else if (inWay) { /* polite: wait for the walker to pass */ }
       else {
         w.z += w.dir * w.speed * dt * (umb ? 0.8 : 1);
         if (w.z > w.zb) { w.z = w.zb; w.dir = -1; }
@@ -195,7 +217,7 @@ export function createLife(scene, P, material) {
       }
       const gy = groundH(Math.round(w.x), Math.floor(w.z)) + 1;
       w.y = w.y === null ? gy : w.y + (gy - w.y) * Math.min(1, dt * 10);
-      const walk = w.pause > 0 ? 0 : 1;
+      const walk = w.pause > 0 || inWay ? 0 : 1;
       const step = t * w.speed * 2.6 + w.ph;
       const bob = Math.abs(Math.sin(step)) * 0.16 * walk;
       const yaw = w.dir > 0 ? 0 : Math.PI;

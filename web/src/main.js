@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { createSky, skyU, sampleTime, applyEnv, DEFAULT_TIME, TIME_KEYS, sunDirection } from './sky.js';
+import { createSky, skyU, atmosU, sampleTime, applyEnv, DEFAULT_TIME, TIME_KEYS, sunDirection } from './sky.js';
 import { emissiveGroups } from './voxel.js';
 import { buildCity } from './world.js';
 import { createPetals, createPost, createRain, FLAKE_MODES } from './fx.js';
@@ -8,6 +8,7 @@ import { createAtmos, SEASONS, WEATHERS } from './atmos.js';
 import { createHanabi, SHAPES, SKY_PALETTES, planMessage } from './hanabi.js';
 import { createLanterns } from './lanterns.js';
 import { createLife } from './life.js';
+import { createWalkMode } from './walkmode.js';
 import { setCustomSign, SIGN_COLORS } from './sign.js';
 import { Director } from './cinematic.js';
 import { createMusic } from './audio.js';
@@ -97,10 +98,20 @@ function unlockAudio() {
 window.addEventListener('pointerdown', unlockAudio, { passive: true });
 window.addEventListener('keydown', unlockAudio);
 
+// 散歩 walk mode: a little voxel person to explore the city with (created once the city is built)
+const walk = createWalkMode({
+  scene, camera, controls, music, lanterns, toast, store,
+  raycast: (o, d, m) => raycastVoxel(o, d, m),
+  flyTo: (p, t, d) => flyTo(p, t, d),
+  keys: () => keys,
+  env: () => ({ lamp: env.lamp, rain: atmos.st.rainK, wet: atmosU.uWet.value, snowCover: atmos.st.snowCover, season: atmos.season, time: state.time }),
+});
+
 // ------------------------------------------------------------------- state
 const state = { time: DEFAULT_TIME, mode: 'explore', timelapse: false, ui: true, hanabi: false, ink: false, life: true, sign: null, lanterns: false };
 const tmpCol = new THREE.Color(), flashCol = new THREE.Color();
 let env = sampleTime(state.time);
+let shadowDirty = false, shadowT = -1;
 let city = null;
 let director = null;
 
@@ -112,7 +123,9 @@ function setTime(t, fromUser = false) {
   sun.color.copy(env.sunColor); sun.intensity = env.sunInt;
   const ld = sunDirection(Math.max(env.sunElev, 9));
   const np = sun.target.position.clone().addScaledVector(ld, 1000);
-  if (np.distanceToSquared(sun.position) > 0.5) { sun.position.copy(np); renderer.shadowMap.needsUpdate = true; }
+  // the 4096² shadow map is re-rendered at most a few times a second (see the loop),
+  // so scrubbing the time slider or a time-lapse stays smooth
+  if (np.distanceToSquared(sun.position) > 0.5) { sun.position.copy(np); shadowDirty = true; }
   fill.intensity = env.fill;
   renderer.toneMappingExposure = env.exposure;
   post.bloom.strength = state.bloomOn === false ? 0 : env.bloom * 0.8;
@@ -123,7 +136,7 @@ function setTime(t, fromUser = false) {
   // label = nearest key
   let best = TIME_KEYS[0];
   for (const k of TIME_KEYS) if (Math.abs(k.t - t) < Math.abs(best.t - t)) best = k;
-  $('#timeLabel').textContent = best.name;
+  if ($('#timeLabel').textContent !== best.name) $('#timeLabel').textContent = best.name;
   music.setMood(moodFor(t));
   updateNowPlaying();
   if (!fromUser) $('#time').value = t;
@@ -222,24 +235,35 @@ const ui = {
   setProgress(p) { $('#cineprogress i').style.transform = `scaleX(${p})`; },
 };
 
-function setMode(m) {
+// modes: explore (fly around) · walk (a little person on the ground) · cinematic
+function setMode(m, at = null) {
   if (m === state.mode) return;
+  if (m !== 'explore' && !director) return;          // still building the city
+  const prev = state.mode;
   state.mode = m;
   document.body.classList.toggle('cine', m === 'cinematic');
   $$('#modeSeg button').forEach((b) => b.classList.toggle('on', b.dataset.mode === m));
+  if (prev === 'walk') walk.leave();
   if (m === 'cinematic') {
     if (!music.on && !music.userOff) setMusic(true);
     fly = null;
     controls.enabled = false;
     director.start(0);
   } else {
-    director.stop();
-    ui.setFade(0);
-    controls.target.copy(director.look);
+    if (prev === 'cinematic') {
+      director.stop();
+      ui.setFade(0);
+      controls.target.copy(director.look);
+      camera.fov = 48; camera.updateProjectionMatrix();
+    }
     controls.enabled = true;
-    camera.fov = 48; camera.updateProjectionMatrix();
+    if (m === 'walk') {
+      walk.enter(at);
+      if (!at) toast('散歩 · Walk mode — V or Esc to fly again');
+    }
     controls.update();
   }
+  if (walk.walker) walk.walker.visible = m !== 'cinematic';
 }
 
 function setMusic(on) {
@@ -313,7 +337,7 @@ function festival(on = !state.matsuri) {
       season: atmos.season, weather: atmos.weather, time: state.time, hanabi: state.hanabi,
       lanterns: state.lanterns, life: state.life, music: music.on,
     };
-    if (state.mode !== 'explore') setMode('explore');
+    if (state.mode === 'cinematic') setMode('explore');
     setSeason('summer', true);
     setWeather('clear', true);
     setTime(0.92);
@@ -322,7 +346,7 @@ function festival(on = !state.matsuri) {
     setLanterns(true, true);
     lanterns.release(40);
     if (!music.on) setMusic(true);
-    flyTo(HERO.pos, HERO.target, 2.6);
+    if (state.mode !== 'walk') flyTo(HERO.pos, HERO.target, 2.6); // walkers stay where they are, in a yukata
     clearTimeout(finaleTimer);
     finaleTimer = setTimeout(() => { if (state.matsuri) hanabi.finale(simT); }, 5000);
     toast('祭 · Matsuri — a summer festival night (press again to end it)');
@@ -418,6 +442,7 @@ function shareURL() {
   if (!state.life) q.set('life', '0');
   if (state.lanterns) q.set('lanterns', '1');
   if (state.sky) { q.set('sky', state.sky.text); if (state.sky.palette !== 'rainbow') q.set('skyp', state.sky.palette); }
+  if (state.mode === 'walk') q.set('walk', walk.shareParam());
   if (state.sign) { q.set('sign', state.sign.text); q.set('signc', state.sign.color); if (state.sign.style !== 'neon') q.set('signs', state.sign.style); }
   return `${location.origin}${location.pathname}?${q}`;
 }
@@ -618,7 +643,15 @@ function bindUI() {
     if (e.target.tagName === 'INPUT') return;
     const k = e.key.toLowerCase();
     keys.add(k);
-    if (k === 'c') setMode(state.mode === 'cinematic' ? 'explore' : 'cinematic');
+    if (e.repeat) return;                              // holding a key doesn't toggle things on and off
+    if (state.mode === 'walk') {
+      if (k === ' ') { e.preventDefault(); walk.jump(); return; }
+      if (k === 'e') { walk.act(); return; }
+      if (k === 'escape') { setMode('explore'); return; }
+      if (k.startsWith('arrow')) { e.preventDefault(); return; }
+    }
+    if (k === 'v') setMode(state.mode === 'walk' ? 'explore' : 'walk');
+    else if (k === 'c') setMode(state.mode === 'cinematic' ? 'explore' : 'cinematic');
     else if (k === 'escape') { if (state.mode === 'cinematic') setMode('explore'); else toggleUI(true); }
     else if (k === 'h') toggleUI();
     else if (k === 'p') screenshot(e);
@@ -658,7 +691,13 @@ function resize() {
   atmos.setSize(w * pixelRatio, h * pixelRatio);
   hanabi.setPixelRatio(pixelRatio);
 }
-window.addEventListener('resize', resize);
+// walk-mode hints sit just above the dock, however many rows it wraps to
+function placeHints() {
+  const d = $('#dock').getBoundingClientRect();
+  document.documentElement.style.setProperty('--dockB', `${Math.round(window.innerHeight - d.top)}px`);
+}
+window.addEventListener('resize', () => { resize(); placeHints(); });
+new ResizeObserver(placeHints).observe($('#dock'));
 
 // ---------------------------------------------------------------- the loop
 const clock = new THREE.Clock();
@@ -696,8 +735,9 @@ function loop() {
   hemi.intensity = env.hemiInt + fl * 0.35;
   if (fl > 0.001) hemi.color.copy(env.hemiSky).lerp(tmpCol.copy(flashCol).multiplyScalar(1 / fl), Math.min(0.6, fl * 0.5));
   else hemi.color.copy(env.hemiSky);
-  if (life && state.life) life.update(dt, t, atmos.st.rainK);
+  if (life && state.life) life.update(dt, t, atmos.st.rainK, walk.player());
   lanterns.update(dt, t, env.lamp);
+  walk.update(dt, t, !!fly);
   rain.uniforms.uTime.value = t;
   rain.uniforms.uCam.value.copy(camera.position);
   // eye adaptation: down among the signs the city is far brighter than from the hill
@@ -749,8 +789,9 @@ function loop() {
       controls.target.lerpVectors(fly.t0, fly.t1, e);
       if (fly.u >= 1) fly = null;
     }
+    if (state.mode === 'walk' && !fly) walk.follow(dt);
     // WASD / QE flying
-    if (keys.size) {
+    else if (keys.size && state.mode === 'explore') {
       const sp = (keys.has('shift') ? 160 : 60) * dt;
       camera.getWorldDirection(tmpF); tmpF.y = 0; tmpF.normalize();
       tmpR.crossVectors(tmpF, camera.up).normalize();
@@ -759,11 +800,13 @@ function loop() {
       if (keys.has('d')) mv.add(tmpR); if (keys.has('a')) mv.sub(tmpR);
       if (keys.has('e')) mv.y += 1; if (keys.has('q')) mv.y -= 1;
       if (mv.lengthSq()) { mv.normalize().multiplyScalar(sp); camera.position.add(mv); controls.target.add(mv); fly = null; }
+      controls.update();
+    } else controls.update();
+    if (state.mode !== 'walk') {                       // walk mode keeps its own camera clear of the world
+      const gx = camera.position.x, gz = camera.position.z;
+      const floor = (inFine(gx, gz) ? groundH(Math.floor(gx), Math.floor(gz)) + 1 : 1) + 2.5;
+      if (camera.position.y < floor) camera.position.y = floor;
     }
-    controls.update();
-    const gx = camera.position.x, gz = camera.position.z;
-    const floor = (inFine(gx, gz) ? groundH(Math.floor(gx), Math.floor(gz)) + 1 : 1) + 2.5;
-    if (camera.position.y < floor) camera.position.y = floor;
   }
 
   // train rumble: nearest train, panned to where it is on screen
@@ -786,6 +829,10 @@ function loop() {
   // keep the sky dome centred on the camera
   scene.children[0].position.copy(camera.position);
 
+  if (shadowDirty && (performance.now() - shadowT > 250 || forcedDt)) {
+    shadowDirty = false; shadowT = performance.now();
+    renderer.shadowMap.needsUpdate = true;
+  }
   renderer.info.reset();
   camera.updateMatrixWorld();
   atmos.renderReflection(camera);
@@ -819,7 +866,16 @@ async function boot() {
     $('#loader .stage').textContent = label;
   });
   director = new Director(camera, ui, trainCtx);
-  life = createLife(scene, city.palette, city.material);
+  life = createLife(scene, city.palette, city.material, {
+    // cars waiting for someone standing in the road
+    onHonk: (x, z) => {
+      const d = tmpT.set(x, 2, z).distanceTo(camera.position);
+      if (d > 140) return;
+      camera.getWorldDirection(tmpF); tmpR.crossVectors(tmpF, camera.up).normalize();
+      music.sfx('honk', { lvl: Math.max(0.15, 1 - d / 140), pan: tmpT.sub(camera.position).normalize().dot(tmpR) });
+    },
+  });
+  walk.init(city);
   hanabi.onBurst(({ at, when, kind, radius }) => {
     const d = at.distanceTo(camera.position);
     music.boom(when + (d * 0.6) / 343, Math.min(1, radius / 90) * Math.max(0.3, 1 - d / 2600), kind === 'chrysanthemum' || kind === 'willow');
@@ -827,6 +883,7 @@ async function boot() {
   console.info('[afterglow] built', city.stats);
   renderer.shadowMap.needsUpdate = true;
   document.body.classList.add('ready');
+  placeHints();
   setTimeout(() => $('#loader').remove(), 1600);
   // opening move: drift down from the clouds onto the hero view
   camera.position.set(-90, 260, 460);
@@ -858,6 +915,10 @@ async function boot() {
     if (c.length === 6 && c.every(Number.isFinite)) { fly = null; camera.position.set(c[0], c[1], c[2]); controls.target.set(c[3], c[4], c[5]); controls.update(); }
   }
   if (q.has('view') && VIEWS[q.get('view')]) { fly = null; const v = VIEWS[q.get('view')]; camera.position.set(...v.pos); controls.target.set(...v.target); }
+  if (q.has('walk')) {
+    const w = q.get('walk').split(',').map(Number);
+    if (w.length === 4 && w.every(Number.isFinite)) { fly = null; setMode('walk', { x: w[0], y: w[1], z: w[2], yaw: w[3] }); }
+  }
   if (q.has('noui')) toggleUI(false);
   // Offscreen capture at a fixed resolution (dev aid; POSTs to the dev server if present).
   const capture = async (name = 'shot', w = 1600, h = 900) => {
@@ -866,7 +927,7 @@ async function boot() {
     return blob.size;
   };
   window.__afterglow = {
-    camera, controls, setTime, setMode, flyTo, city, director, scene, renderer, VIEWS, capture, post, petals, music, atmos, hanabi, life, lanterns,
+    camera, controls, setTime, setMode, flyTo, city, walk, director, scene, renderer, VIEWS, capture, post, petals, music, atmos, hanabi, life, lanterns,
     setSeason, setWeather, setHanabi, setInk, setLife, setLanterns, setAmbience, festival, skyWrite, applySign, shareURL, renderAt,
     get simT() { return simT; }, get env() { return env; },
     // dev: advance the simulation without rAF (hidden tabs / headless checks)
