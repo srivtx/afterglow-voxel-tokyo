@@ -10,7 +10,7 @@ import { buildStreetHouses, buildBigHouses } from './build/houses.js';
 import { buildDistrict } from './build/district.js';
 import { buildTower } from './build/tower.js';
 import { buildTrees } from './build/trees.js';
-import { buildProps, wireGeometry } from './build/props.js';
+import { buildProps, wireGeometry, wireLines } from './build/props.js';
 import { buildSkyline, buildFarSkyline } from './build/skyline.js';
 import { buildViaduct, buildCar, trackFrame, DECK_TOP } from './build/rail.js';
 import { buildClouds } from './build/clouds.js';
@@ -81,10 +81,10 @@ export async function buildCity(scene, onProgress = () => {}) {
   rail.name = 'rail';
   scene.add(rail);
   groups.rail = rail;
-  faces += await meshWorld(railW, mat, rail, { shadows: true, freeData: true });
+  faces += await meshWorld(railW, mat, rail, { shadows: true }); // voxels kept: the walker collides with the viaduct
   const wireMat = makeFlatMaterial('#1a1824');
-  const rw = new THREE.Mesh(wireGeometry(railWires.map(([a, b]) => [a, b, 0.2]), 0.11), wireMat);
-  rail.add(rw);
+  const railW2 = railWires.map(([a, b]) => [a, b, 0.2]);
+  rail.add(new THREE.Mesh(wireGeometry(railW2, 0.11), wireMat), new THREE.LineSegments(wireLines(railW2), wireMat));
 
   const carGroups = {};
   for (const k of Object.keys(cars)) {
@@ -122,6 +122,7 @@ export async function buildCity(scene, onProgress = () => {}) {
   // street wires
   const wires = new THREE.Mesh(wireGeometry(stats.wires), wireMat);
   wires.name = 'wires';
+  wires.add(new THREE.LineSegments(wireLines(stats.wires), wireMat));
   scene.add(wires);
 
   // ground plane under the coarse city
@@ -140,5 +141,5 @@ export async function buildCity(scene, onProgress = () => {}) {
   stats.ms = Math.round(performance.now() - t0);
   stats.lights = fine.lights.length;
   onProgress(1, 'Ready');
-  return { fine, groups, rail, train, train2, clouds: cloudItems, wires, stats, palette: P, material: mat };
+  return { fine, railWorld: railW, groups, rail, train, train2, clouds: cloudItems, wires, stats, palette: P, material: mat };
 }

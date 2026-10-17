@@ -214,6 +214,60 @@
       body:not(.dock-open) #atmos { display: none; }
       .dlg { right: 12px; left: 12px; width: auto; top: 56px; }
     }
+
+    /* ---------- 散歩 walk mode ---------- */
+    #minimap { position: fixed; left: 26px; top: 50%; transform: translateY(-50%); width: 140px; height: 195px; border-radius: 16px; z-index: 9; opacity: 0; pointer-events: none; image-rendering: pixelated; }
+    body.walk.ready:not(.noui):not(.cine) #minimap { opacity: 0.94; }
+    #place { position: fixed; left: 50%; top: 15vh; transform: translateX(-50%); z-index: 9; text-align: center; pointer-events: none; opacity: 0; }
+    #place.show { animation: place 3.6s ease forwards; }
+    @keyframes place { 0% { opacity: 0; filter: blur(8px); transform: translate(-50%, 10px); } 14% { opacity: 1; filter: none; transform: translate(-50%, 0); } 78% { opacity: 1; } 100% { opacity: 0; } }
+    #place .jp { font-family: var(--mincho); font-size: clamp(30px, 4vw, 48px); letter-spacing: 0.2em; padding-left: 0.2em; text-shadow: 0 3px 26px rgba(0, 0, 0, 0.55), 0 0 30px rgba(255, 150, 120, 0.4); }
+    #place .en { font-size: 12px; letter-spacing: 0.36em; text-transform: uppercase; color: rgba(255, 236, 244, 0.85); margin-top: 2px; }
+    #place .n { font-size: 10px; letter-spacing: 0.22em; text-transform: uppercase; color: var(--accent2); margin-top: 8px; }
+    #walkPrompt { position: fixed; left: 50%; bottom: calc(var(--dockB, 97px) + 10px); transform: translateX(-50%); z-index: 9; padding: 8px 14px; border-radius: 12px; font-size: 12.5px; color: var(--dim); white-space: nowrap; display: none; align-items: center; gap: 8px; }
+    body.walk.ready:not(.cine) #walkPrompt:not(:empty) { display: flex; }
+    #walkPrompt b { font-family: var(--mincho); color: var(--ink); font-size: 14px; }
+    #walkPrompt.special { color: var(--ink); border-color: rgba(255, 179, 90, 0.65); box-shadow: 0 0 22px rgba(255, 150, 90, 0.3); }
+    kbd { font: 600 10.5px var(--sans); padding: 2px 6px; border-radius: 5px; background: rgba(255, 255, 255, 0.14); color: var(--ink); border: 1px solid var(--line); }
+    #walkKeys { position: fixed; left: 50%; bottom: calc(var(--dockB, 97px) + 58px); transform: translate(-50%, 8px); z-index: 9; padding: 9px 14px; border-radius: 13px; display: flex; flex-wrap: wrap; justify-content: center; gap: 6px 14px; font-size: 11.5px; color: var(--dim); max-width: calc(100vw - 32px); opacity: 0; pointer-events: none; transition: opacity 0.5s, transform 0.5s; }
+    body.walk #walkKeys.show { opacity: 1; transform: translate(-50%, 0); }
+    #omikuji { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -46%) scale(0.96); z-index: 15; width: min(320px, calc(100vw - 40px)); padding: 22px 22px 16px; border-radius: 18px; text-align: center; opacity: 0; pointer-events: none; transition: all 0.45s cubic-bezier(0.2, 0.8, 0.2, 1); cursor: pointer;
+      background: linear-gradient(180deg, rgba(255, 246, 232, 0.94), rgba(244, 228, 210, 0.94)); color: #2a1a22; border-color: rgba(200, 60, 50, 0.4); }
+    #omikuji.show { opacity: 1; transform: translate(-50%, -50%); pointer-events: auto; }
+    #omikuji .tag { font-size: 10px; letter-spacing: 0.26em; text-transform: uppercase; color: #a3423a; }
+    #omikuji .rank { font-family: var(--mincho); font-weight: 700; font-size: 64px; line-height: 1.15; color: #c2281e; margin-top: 6px; }
+    #omikuji.bad .rank { color: #3a3442; }
+    #omikuji .en { font-size: 11px; letter-spacing: 0.3em; text-transform: uppercase; color: #6a4a50; }
+    #omikuji .line { font-family: var(--mincho); font-size: 16px; line-height: 1.6; margin: 14px 4px 10px; }
+    #omikuji .close { font-size: 10px; letter-spacing: 0.14em; color: #8a7078; }
+    #joy, #touchBtns { display: none; }
+    @media (pointer: coarse) {
+      body.walk.ready:not(.cine):not(.noui) #joy { display: block; }
+      body.walk.ready:not(.cine):not(.noui) #touchBtns { display: flex; }
+      body.walk #walkKeys, body.walk #walkPrompt { display: none !important; }
+    }
+    #joy { position: fixed; left: 22px; bottom: 96px; z-index: 12; width: 124px; height: 124px; border-radius: 50%; touch-action: none; }
+    #joy i { position: absolute; left: 50%; top: 50%; width: 52px; height: 52px; margin: -26px 0 0 -26px; border-radius: 50%; background: linear-gradient(135deg, #ffd2a0, #ff9ac2); box-shadow: 0 4px 18px rgba(255, 140, 170, 0.45); }
+    #touchBtns { position: fixed; right: 22px; bottom: 100px; z-index: 12; gap: 12px; align-items: flex-end; }
+    #touchBtns button { width: 64px; height: 64px; border-radius: 50%; font-family: var(--mincho); font-size: 20px; color: var(--ink); touch-action: none; }
+    #touchBtns #btnAct { width: 74px; height: 74px; font-size: 15px; }
+    #touchBtns #btnAct:empty { display: none; }
+
+    /* short windows: keep the season panel clear of the dock */
+    @media (max-height: 820px) and (min-width: 641px) {
+      #atmos { top: 72px; transform: none; padding: 8px 7px; gap: 7px; }
+      body.cine #atmos { transform: translateX(30px); }
+      .kseg button { height: 40px; }
+      .kseg .wide { height: 32px; }
+    }
+    @media (max-height: 640px) and (min-width: 641px) {
+      .kseg button { height: 34px; } .kseg button i { display: none; } #atmos .lbl { margin-bottom: 3px; }
+      #minimap { display: none; }
+    }
+    @media (max-width: 640px) {
+      #minimap { top: auto; bottom: 236px; left: 12px; transform: none; width: 84px; height: 117px; border-radius: 12px; }
+      #place { top: 11vh; }
+    }
   </style>
   <script type="importmap">
     {
@@ -318,7 +372,8 @@
 
   <nav id="dock" class="glass ui">
     <div class="seg" id="modeSeg">
-      <button data-mode="explore" class="on">Explore</button>
+      <button data-mode="explore" class="on" title="Fly around the diorama">Explore</button>
+      <button data-mode="walk" title="Walk the streets as a little person (V)">歩 Walk</button>
       <button data-mode="cinematic">▶ Cinematic</button>
     </div>
     <button class="more" id="dockMore" title="More controls" aria-label="More controls">⋯</button>
@@ -359,6 +414,7 @@
     <div><b>Double-click</b>focus on a spot</div>
     <div><b>W A S D · Q E</b>fly (Shift = fast)</div>
     <div><b>1 – 8</b>viewpoints</div>
+    <div><b>V</b>walk the streets yourself · <b style="min-width:0">E</b> pray, ring, buy, release</div>
     <div><b>C</b>cinematic · <b style="min-width:0">T</b> time · <b style="min-width:0">H</b> hide UI</div>
     <div><b>M · N</b>music — Afterglow FM · city sound (drop a track to use yours)</div>
     <div><b>Z · X</b>season · weather</div>
@@ -366,6 +422,21 @@
     <div><b>Y · G</b>write in the sky · grand finale · tap the sky to launch</div>
     <div><b>R</b>record clip (Shift: whole film) · <b style="min-width:0">⇧P</b> 4K</div>
   </div>
+  <!-- 散歩 walk mode -->
+  <canvas id="minimap" class="glass ui" aria-label="Map of the city"></canvas>
+  <div id="place" aria-live="polite"><div class="jp"></div><div class="en"></div><div class="n"></div></div>
+  <div id="walkPrompt" class="glass ui"></div>
+  <div id="walkKeys" class="glass ui">
+    <span><kbd>W A S D</kbd> walk</span><span><kbd>Shift</kbd> run</span><span><kbd>Space</kbd> jump</span>
+    <span><kbd>E</kbd> do something</span><span><kbd>Drag</kbd> look around</span><span><kbd>← →</kbd> turn</span><span><kbd>V</kbd> fly again</span>
+  </div>
+  <div id="omikuji" class="glass" role="dialog" aria-label="Your fortune">
+    <div class="tag">おみくじ · Your fortune</div>
+    <div class="rank"></div><div class="en"></div><div class="line"></div>
+    <div class="close">tap to fold it away</div>
+  </div>
+  <div id="joy" class="glass" aria-label="Walk"><i></i></div>
+  <div id="touchBtns"><button id="btnAct" class="glass" aria-label="Do something"></button><button id="btnJump" class="glass" aria-label="Jump">跳</button></div>
   <button id="unhide" class="glass" title="Show interface">◐</button>
   <div id="toast" class="glass"></div>
 
