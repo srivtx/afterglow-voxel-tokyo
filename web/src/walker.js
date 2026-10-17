@@ -10,8 +10,10 @@ import { inFine, trackDist } from './build/layout.js';
 // voxel world and the railway viaduct; steps up kerbs and stairs on its own.
 // ---------------------------------------------------------------------------
 const VS = 0.21;              // one character voxel in world units (~3.4 tall, like the people in the street)
-const R = 0.42, H = 3.1;      // collision box half-width and height
-const GRAV = 36, JUMP = 12;   // jump apex v²/2g ≈ 2 voxels
+// The box is a little shorter than the model so a 3-voxel gap (under eaves,
+// lantern rails, the viaduct) is passable; the head brushes the ceiling.
+const R = 0.42, H = 2.9;      // collision box half-width and height
+const GRAV = 36, JUMP = 13.7; // jump apex v²/2g ≈ 2.6 voxels: clears a 2-voxel wall
 export const WALK = 5.4, RUN = 11.5;
 const O = 16;                 // model voxel offset (models must fit in one chunk)
 
@@ -267,6 +269,8 @@ export function createWalker({ P, material, world, rail, railWorld }) {
   function update(dt, t, input, env) {
     if (!placed) return;
     setOutfit(env.season);
+    // never stay inside geometry (a spawn on a moved prop, a share link into a wall)
+    for (let i = 0; i < 4 && hits(pos.x, pos.y, pos.z); i++) { pos.y = Math.floor(pos.y) + 1; vel.y = 0; }
     const n = Math.max(1, Math.ceil(dt / (1 / 90)));
     const h = dt / n;
     const mv = Math.min(1, Math.hypot(input.x, input.z));
@@ -285,17 +289,26 @@ export function createWalker({ P, material, world, rail, railWorld }) {
         if (!d) continue;
         const nx = ax === 'x' ? pos.x + d : pos.x, nz = ax === 'z' ? pos.z + d : pos.z;
         if (!hits(nx, pos.y, nz)) { pos.x = nx; pos.z = nz; continue; }
+        // step up a one-voxel ledge on the ground; in the air, climb onto a
+        // ledge the feet have nearly cleared (jump at a wall and you get up it)
         const up = Math.floor(pos.y + 0.01) + 1;
-        if ((grounded || air < 0.1) && up - pos.y <= 1.05 && !hits(nx, up, nz) && !hits(pos.x, up, pos.z)) { pos.y = up; pos.x = nx; pos.z = nz; }
-        else vel[ax] = 0;
+        const onGround = grounded || air < 0.1;
+        if ((onGround || vel.y < 6) && up - pos.y <= (onGround ? 1.05 : 0.95) && !hits(nx, up, nz) && !hits(pos.x, up, pos.z)) {
+          pos.y = up; pos.x = nx; pos.z = nz;
+          if (!onGround) { vel.y = 0; grounded = true; air = 0; }
+        } else vel[ax] = 0;
       }
       // vertical
       vel.y -= GRAV * h;
       const ny = pos.y + vel.y * h;
       if (vel.y <= 0) {
-        if (hits(pos.x, ny, pos.z)) {
+        // probe a hair below the feet, so standing on a floor stays grounded
+        // (without it the walker sank 0.004, "fell" for a tick, and the gait,
+        // footsteps and step-ups flickered on flat ground)
+        const fy = ny - 0.02;
+        if (hits(pos.x, fy, pos.z)) {
           if (!grounded && air > 0.2 && hooks.onLand) hooks.onLand(-vel.y, surfaceUnder());
-          pos.y = Math.floor(ny + 0.01) + 1;
+          pos.y = Math.floor(fy + 0.01) + 1;
           vel.y = 0; grounded = true; air = 0;
         } else { pos.y = ny; grounded = false; air += h; }
       } else if (hits(pos.x, ny, pos.z)) vel.y = 0;
@@ -370,7 +383,7 @@ export function createWalker({ P, material, world, rail, railWorld }) {
     shadow.material.uniforms.uA.value = 0.5 * Math.max(0, 1 - hgt / 8);
     shadow.scale.setScalar(2.6 * (1 + hgt * 0.06));
     props.bulb.getWorldPosition(light);
-    const li = lanK * dusk * 2.2 * (0.9 + 0.1 * Math.sin(t * 9) * Math.sin(t * 5.3)) * (group.visible ? 1 : 0);
+    const li = lanK * dusk * 3.2 * (0.9 + 0.1 * Math.sin(t * 9) * Math.sin(t * 5.3)) * (group.visible ? 1 : 0);
     lanternLight.value.set(light.x, light.y - 0.5, light.z, li);
   }
 

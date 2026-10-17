@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { Reflector } from 'three/addons/objects/Reflector.js';
 import { atmosU } from './sky.js';
+import { groundH, inFine, PLATEAU } from './build/layout.js';
 
 // ---------------------------------------------------------------------------
 // Seasons + weather. Everything here is uniforms and particles: switching a
@@ -51,6 +52,15 @@ export function createAtmos({ renderer, scene, flakes, rain }) {
   mirror.updateMatrixWorld(true);
   const mirrorRT = mirror.getRenderTarget();
   const mirrorInv = mirror.matrixWorld.clone().invert();
+  // the mirror sits at the street level under the camera: the old town's
+  // plateau or the low district, so both get real reflections in the rain
+  function setMirrorLevel(y) {
+    if (U.uReflY.value === y) return;
+    U.uReflY.value = y;
+    mirror.position.y = y;
+    mirror.updateMatrixWorld(true);
+    mirrorInv.copy(mirror.matrixWorld).invert();
+  }
 
   function setSeason(name) {
     const s = SEASONS[name];
@@ -145,6 +155,8 @@ export function createAtmos({ renderer, scene, flakes, rain }) {
     U.uRefl.value = null;
     if (!on) return;
     camera.getWorldPosition(dummy);
+    const gy = inFine(dummy.x, dummy.z) ? groundH(Math.floor(dummy.x), Math.floor(dummy.z)) : 0;
+    setMirrorLevel(gy >= 10 ? PLATEAU + 1 : 1);
     if (dummy.y <= U.uReflY.value + 0.2) return;
     const rainVis = rain.mesh.visible, flakeVis = flakes.mesh.visible;
     rain.mesh.visible = false; flakes.mesh.visible = false;
