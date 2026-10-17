@@ -44,7 +44,9 @@ vec3 skyBase(vec3 d, out float t) {
   float y = d.y;
   vec2 hd = normalize(d.xz + vec2(1e-5));
   vec2 hs = normalize(uSunDir.xz + vec2(1e-5));
-  float az = dot(hd, hs) * 0.5 + 0.5;
+  // clamped: dot() of two unit vectors can land a hair outside [-1, 1], and
+  // pow() of a negative number is NaN (looking straight away from the sun)
+  float az = clamp(dot(hd, hs) * 0.5 + 0.5, 0.0, 1.0);
   float azS = pow(az, 2.6);
   vec3 hor = mix(uHorizonAnti, uHorizon, azS);
   vec3 band = mix(uBandAnti, uBand, pow(az, 1.6));
@@ -70,7 +72,7 @@ vec3 fogColor(vec3 d) {
   vec3 dd = normalize(vec3(d.x, 0.3, d.z));
   vec3 c = skyBase(dd, t);
   vec3 lo = skyBase(normalize(vec3(d.x, 0.06, d.z)), t);
-  float sd = max(dot(normalize(vec3(d.x, 0.0, d.z)), normalize(vec3(uSunDir.x, 0.0, uSunDir.z))), 0.0);
+  float sd = max(dot(normalize(vec3(d.x, 0.0, d.z) + vec3(1e-5, 0.0, 0.0)), normalize(vec3(uSunDir.x, 0.0, uSunDir.z))), 0.0);
   c = mix(c, lo, 0.3 * pow(sd, 6.0));
   return c * vec3(0.7, 0.72, 0.86);
 }

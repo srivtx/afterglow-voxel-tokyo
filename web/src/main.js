@@ -156,7 +156,7 @@ function updateGroups(t) {
     else if (phase < 0.035 && h < 0.65) f = 0.15;
     g[i] = env.neon * f * (0.97 + 0.03 * Math.sin(t * 40 + i));
   }
-  g[10] = env.lamp * (0.93 + 0.07 * Math.sin(t * 2.1) * Math.sin(t * 3.7));
+  g[10] = env.lamp * (0.93 + 0.07 * Math.sin(t * 2.1) * Math.sin(t * 3.7)) * (1 - 0.5 * glareK);
   g[11] = env.tower * (0.96 + 0.04 * Math.sin(t * 0.8));
   // neon breathes with the kick drum while the music plays
   const p = music.pulse();
@@ -707,7 +707,7 @@ const tmpF = new THREE.Vector3(), tmpR = new THREE.Vector3(), tmpT = new THREE.V
 const bandsBuf = new Float32Array(5);
 const eqBars = $$('#nowplaying .eq i');
 
-let forcedDt = null, adapt = 0, sceneSoundT = 1;
+let forcedDt = null, adapt = 0, glareK = 0, sceneSoundT = 1;
 function loop() {
   const real = clock.getDelta();
   const dt = forcedDt ?? Math.min(real, 0.1);
@@ -749,6 +749,10 @@ function loop() {
     const night = THREE.MathUtils.smoothstep(state.time, 0.3, 0.9);
     const target = Math.max(inDistrict * (0.35 + 0.65 * night), inOld * 0.6 * night);
     adapt += (target - adapt) * Math.min(1, dt * 2.5);
+    // down at street level the lanterns are a metre away, not a block: a lantern
+    // filling a quarter of the screen would bloom the whole frame white
+    const low = sat((gy + 15 - c.y) / 9, 0, 1) * THREE.MathUtils.smoothstep(state.time, 0.25, 0.75);
+    glareK += (low - glareK) * Math.min(1, dt * 2.5);
     // where the listener stands, for the city soundscape
     if (music.ambOn && (sceneSoundT += dt) > 0.12) {
       sceneSoundT = 0;
@@ -763,8 +767,9 @@ function loop() {
         shrinePan: tmpT.set(dx, 0, dz).normalize().dot(tmpR),
       });
     }
-    renderer.toneMappingExposure = env.exposure * (1 - 0.5 * adapt);
-    post.bloom.strength = state.bloomOn === false ? 0 : env.bloom * 0.8 * (1 - 0.6 * adapt);
+    renderer.toneMappingExposure = env.exposure * (1 - 0.5 * adapt) * (1 - 0.1 * glareK);
+    post.bloom.strength = state.bloomOn === false ? 0 : env.bloom * 0.8 * (1 - 0.6 * adapt) * (1 - 0.5 * glareK);
+    post.bloom.radius = 0.55 - 0.3 * glareK;
   }
 
   // trains

@@ -266,6 +266,8 @@ export function createPost(renderer, scene, camera) {
     varying vec2 vUv;
     void main() {
       vec3 c = min(texture2D(tDiffuse, vUv).rgb, vec3(6e4));
+      // one NaN pixel would be smeared over the whole frame by the blur: drop it
+      if (any(isnan(c))) c = vec3(0.0);
       float br = max(max(c.r, c.g), c.b);
       float knee = luminosityThreshold * 0.5;
       float rq = clamp(br - luminosityThreshold + knee, 0.0, 2.0 * knee);

@@ -160,7 +160,11 @@ export function createWalkMode(ctx) {
     jumpReq = false;
     busy -= dt;
     if (!active) return;
-    if ((actionT -= dt) <= 0) { actionT = 0.2; action = findAction(); renderPrompt(); }
+    if ((actionT -= dt) <= 0) {
+      actionT = 0.2;
+      const a = findAction();
+      if (a !== action) { action = a; renderPrompt(); }   // touch the DOM only when it changes
+    }
     const pk = placeAt(walker.pos.x, walker.pos.y, walker.pos.z);
     if (pk !== placeK) { placeK = pk; placeT = 0; } else placeT += dt;
     if (placeT > 0.8 && pk !== shownPlace) { shownPlace = pk; showPlace(pk); }
@@ -228,7 +232,7 @@ export function createWalkMode(ctx) {
   }
   function aimBehind() {
     walker.focus(head);
-    want.set(-Math.sin(walker.yaw), 0.4, -Math.cos(walker.yaw)).normalize();
+    want.set(-Math.sin(walker.yaw), 0.5, -Math.cos(walker.yaw)).normalize();
     cur.copy(want);
     effDist = 0.5;                                        // grows out to the free distance
   }

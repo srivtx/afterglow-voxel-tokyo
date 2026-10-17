@@ -372,7 +372,8 @@ const ATMOS_FRAG_DECL = /* glsl */ `
     float ph = fract(t * 0.85 + h * 7.0);
     vec2 o = (vec2(ah12(c + 3.7), ah12(c + 9.1)) - 0.5) * 0.3;
     vec2 d = f - o; float r = length(d);
-    float w = exp(-pow((r - ph * 0.45) * 20.0, 2.0)) * (1.0 - ph) * step(0.25, h);
+    float rr = (r - ph * 0.45) * 20.0; // squared by hand: pow() of a negative base is undefined (NaN)
+    float w = exp(-rr * rr) * (1.0 - ph) * step(0.25, h);
     return d / max(r, 1e-3) * w;
   }
 `;
@@ -403,7 +404,7 @@ const WET_GLSL = /* glsl */ `
     vec2 rip = uRain > 0.001 ? ripple(vWPos.xz * 1.3, uTime) * uRain : vec2(0.0);
     vec3 N = normalize(vec3(rip.x * 0.3, 1.0, rip.y * 0.3));
     vec3 R = reflect(V, N);
-    float fres = 0.08 + 0.92 * pow(1.0 - max(dot(-V, N), 0.0), 4.0);
+    float fres = 0.08 + 0.92 * pow(clamp(1.0 - dot(-V, N), 0.0, 1.0), 4.0);
     vec3 refl = fogColor(R) * 0.5 + skyColor(normalize(vec3(R.x, max(R.y, 0.02), R.z))) * 0.2;
     if (uReflOn > 0.5) {
       vec4 rp = uReflMat * vec4(vWPos, 1.0);
@@ -467,13 +468,13 @@ export function makeVoxelMaterial() {
         totalEmissiveRadiance += vBakeOut;
         if (uLantern.w > 0.001) {
           vec3 ld = uLantern.xyz - vWPos; float dl = length(ld);
-          float att = uLantern.w / (1.0 + dl * dl * 0.3) * (1.0 - smoothstep(8.0, 13.0, dl));
+          float att = uLantern.w / (1.0 + dl * dl * 0.22) * (1.0 - smoothstep(9.0, 15.0, dl));
           float ndl = max(dot(normalize(vWN), ld / max(dl, 1e-3)), 0.0) * 0.8 + 0.2;
           totalEmissiveRadiance += diffuseColor.rgb * vec3(1.0, 0.62, 0.32) * att * ndl;
         }`)
       .replace('#include <fog_fragment>', WET_GLSL + FOG_GLSL);
   };
-  mat.customProgramCacheKey = () => 'voxel-v4';
+  mat.customProgramCacheKey = () => 'voxel-v5';
   return mat;
 }
 

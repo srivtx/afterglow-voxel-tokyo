@@ -71,7 +71,7 @@ The link button builds these for you.
   - The 祭 Matsuri button sets a summer festival night: fireworks, lanterns, music and a grand finale.
 - **`src/walker.js`** and **`src/walkmode.js`**: 散歩, walk mode. The walker is built from the same voxels as the city, so it gets the same light, wet streets and snow on its head.
   - It dresses for the season: a jacket and sakura hairpin in spring, a yukata with a fan in the obi in summer, a scarf in autumn, a beanie and mittens in winter. It opens a clear umbrella in the rain and carries a paper lantern after dark; the lantern lights the street through a single shader uniform rather than a real light.
-  - Physics runs against the voxel world and the railway viaduct, stepping up kerbs and stairs. Footsteps change with the surface and the weather (stone, gravel, grass, wood, puddles, snow).
+  - Physics runs against the voxel world and the railway viaduct, stepping up kerbs and stairs. A jump clears a 2-voxel wall, and jumping at a ledge climbs onto it. Footsteps change with the surface and the weather (stone, gravel, grass, wood, puddles, snow).
   - The follow camera never sits inside a building, a tree or the viaduct (voxel meshes have no inner faces, so it would see straight through them). When the view behind the walker is blocked it swings round or rises over its head.
   - Cars stop and queue for you in the road, and honk if you stay. People wait for you to pass.
   - Nine places to find, with a title card for each and a minimap. On touch screens there is a joystick and buttons.
@@ -87,7 +87,8 @@ The link button builds these for you.
 - **`src/life.js`**: instanced voxel traffic driving on the left, pedestrians who open umbrellas when it rains, and crows circling the pagoda.
 - **`src/sign.js`**: lets you hang your own neon or lightbox sign on the railway bridge.
 - **Ink style**: a post pass that draws anime-style outlines from depth silhouettes and creases, with soft cel banding.
-- **Eye adaptation**: exposure and bloom ease down when you walk among the signs at night.
+- **Eye adaptation**: exposure and bloom ease down when you walk among the signs at night, and at street level after dark, where a lantern a metre away would otherwise flood the frame.
+- **Wet streets** reflect the city through a planar mirror placed at the street level under the camera: the old town's plateau or the low district.
 - **`src/cinematic.js`**: a nine-shot director with eased camera paths, dip-to-black cuts, a 2.39:1 letterbox, and captions. The fireworks shot is included only while fireworks are on.
   - With music playing, cuts are stretched to land on bar lines and the lens pulses with the kick drum.
 - **`src/audio.js`**: *Afterglow FM*, a generative lo-fi / city-pop soundtrack composed live in WebAudio with no audio files. It combines an FM electric piano with tape wow, a Karplus-Strong koto playing a pentatonic melody (with occasional *oshide* pitch bends), a sine bass, saw pads, swung synthesized drums with side-chain pumping, vinyl crackle, wind, and fūrin chimes.
